@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据浏览 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <style>
+        /* 全屏工作区：分页始终在初屏底部可见，表体内部滚动 */
+        html, body.viewer-page { height: 100%; }
+        body.viewer-page {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: var(--color-bg, #f1f5f9);
+        }
+        body.viewer-page > .navbar { flex-shrink: 0; }
+        body.viewer-page .toast-container { z-index: 2000; }
+
+        .viewer-shell {
+            flex: 1;
+            min-height: 0;
+            width: 100%;
+            max-width: none;
+            margin: 0;
+            padding: 0.5rem 0.85rem 0.65rem;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+
+        .viewer-layout {
+            display: flex;
+            gap: 12px;
+            flex: 1;
+            min-height: 0;
+            margin: 0;
+        }
+
+        .sidebar {
+            width: 260px;
+            flex-shrink: 0;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: var(--shadow-md);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .sidebar .sb-header {
+            padding: 10px 14px;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 700;
+            font-size: .82rem;
+            color: #475569;
+            background: #f8fafc;
+            flex-shrink: 0;
+        }
+        .sidebar .sb-body { flex: 1; overflow-y: auto; padding: 8px 0; min-height: 0; }
+        .sidebar .sb-body .tbl-item {
+            padding: 7px 14px;
+            cursor: pointer;
+            font-size: .8rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background .12s;
+            border-left: 3px solid transparent;
+            color: #475569;
+        }
+        .sidebar .sb-body .tbl-item:hover { background: #f1f5f9; color: #1e293b; }
+        .sidebar .sb-body .tbl-item.active {
+            background: #eef2ff;
+            border-left-color: #4f46e5;
+            color: #4f46e5;
+            font-weight: 600;
+        }
+        .sidebar .sb-body .tbl-item .tbl-icon { font-size: .9rem; width: 18px; text-align: center; }
+        .sidebar .sb-body .tbl-search { padding: 6px 12px 10px; }
+        .sidebar .sb-body .tbl-search input {
+            width: 100%;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: .8rem;
+            outline: none;
+            transition: border .15s;
+        }
+        .sidebar .sb-body .tbl-search input:focus { border-color: #4f46e5; }
+        .sidebar .sb-footer {
+            padding: 8px 14px;
+            border-top: 1px solid #e2e8f0;
+            font-size: .7rem;
+            color: #94a3b8;
+            flex-shrink: 0;
+        }
+        .schema-selector {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #fafbfc;
+            flex-shrink: 0;
+        }
+        .schema-selector select {
+            width: 100%;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 5px 8px;
+            font-size: .78rem;
+            outline: none;
+            color: #475569;
+            background: #fff;
+        }
+        .schema-selector select:focus { border-color: #4f46e5; }
+        .schema-selector .schema-label {
+            font-size: .68rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .main-area {
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #fff;
+            border-radius: 10px;
+            padding: 8px 12px;
+            box-shadow: var(--shadow-sm, var(--shadow-md));
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        .toolbar .tb-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+        .toolbar .tb-right { display: flex; align-items: center; gap: 8px; }
+        .tb-title { font-weight: 800; font-size: .92rem; color: #1e293b; white-space: nowrap; margin-right: 4px; }
+        .tb-ds { font-weight: 700; font-size: .85rem; color: #1e293b; white-space: nowrap; }
+        .tb-table {
+            font-size: .82rem;
+            color: #4f46e5;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 220px;
+        }
+        .tb-rowcount { font-size: .75rem; color: #94a3b8; white-space: nowrap; }
+
+        .mode-tabs { display: flex; gap: 0; }
+        .mode-tab {
+            padding: 5px 14px;
+            font-size: .78rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            color: #64748b;
+            transition: all .15s;
+        }
+        .mode-tab:first-child { border-radius: 8px 0 0 8px; }
+        .mode-tab:last-child { border-radius: 0 8px 8px 0; }
+        .mode-tab.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+
+        .sql-editor {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: var(--shadow-sm, var(--shadow-md));
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .sql-editor .se-header {
+            padding: 8px 14px;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 700;
+            font-size: .8rem;
+            color: #475569;
+            background: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sql-editor textarea {
+            width: 100%;
+            border: none;
+            padding: 10px 14px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: .82rem;
+            resize: vertical;
+            min-height: 56px;
+            max-height: 140px;
+            outline: none;
+            color: #1e293b;
+            line-height: 1.5;
+        }
+        .sql-editor .se-footer {
+            padding: 6px 14px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #fafbfc;
+        }
+        .sql-editor .se-hint { font-size: .7rem; color: #94a3b8; }
+
+        .data-panel {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: var(--shadow-md);
+            overflow: hidden;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .data-panel .dp-header {
+            padding: 8px 14px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #f8fafc;
+            flex-shrink: 0;
+        }
+        .data-panel .dp-header .dp-title { font-weight: 700; font-size: .8rem; color: #475569; }
+        .data-panel .dp-body {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+        }
+        .data-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+        .data-table thead { position: sticky; top: 0; z-index: 2; }
+        .data-table thead th {
+            background: #f1f5f9;
+            color: #475569;
+            font-weight: 700;
+            font-size: .72rem;
+            text-transform: uppercase;
+            letter-spacing: .3px;
+            padding: 7px 10px;
+            text-align: left;
+            border-bottom: 2px solid #e2e8f0;
+            white-space: nowrap;
+        }
+        .data-table thead th.pk-col { color: #4f46e5; }
+        .data-table thead th.pk-col::after { content: ' PK'; font-size: .6rem; opacity: .6; }
+        .data-table tbody td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+            max-width: 280px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: .76rem;
+        }
+        .data-table tbody tr:hover td { background: #f8fafc; }
+        .data-table tbody td.null-val { color: #94a3b8; font-style: italic; }
+
+        .data-panel .dp-footer {
+            padding: 8px 14px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #fafbfc;
+            font-size: .78rem;
+            flex-shrink: 0;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .pagination-info { color: #64748b; }
+        .pagination-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+        .page-btn {
+            padding: 4px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-size: .75rem;
+            color: #475569;
+            transition: all .12s;
+        }
+        .page-btn:hover:not(:disabled) { background: #eef2ff; border-color: #4f46e5; color: #4f46e5; }
+        .page-btn:disabled { opacity: .4; cursor: default; }
+        .page-btn.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+        .page-input {
+            width: 44px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 4px;
+            font-size: .75rem;
+            outline: none;
+        }
+        .page-input:focus { border-color: #4f46e5; }
+
+        .empty-state-viewer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100%;
+            padding: 40px 20px;
+            color: #94a3b8;
+            box-sizing: border-box;
+        }
+        .empty-state-viewer .es-icon { font-size: 2.4rem; margin-bottom: 10px; }
+        .empty-state-viewer h5 { color: #64748b; margin-bottom: 4px; }
+
+        .loading-overlay {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100%;
+            padding: 40px;
+        }
+        .spinner-ring {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #4f46e5;
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-box {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #991b1b;
+            font-size: .82rem;
+            margin: 12px 16px;
+        }
+
+        @media (max-width: 900px) {
+            body.viewer-page { overflow: auto; }
+            .viewer-layout { flex-direction: column; }
+            .sidebar { width: 100%; max-height: 220px; }
+            .data-panel { min-height: 50vh; }
+        }
+    </style>
+</head>
+<body class="viewer-page">
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100" style="max-width:none;padding-left:0.85rem;padding-right:0.85rem;">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white active" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="viewer-shell">
+        <div class="viewer-layout">
+            <!-- 左侧边栏 -->
+            <div class="sidebar">
+                <div class="sb-header">&#128451; 数据源 &amp; 表列表</div>
+                <div class="schema-selector" id="schemaSelector" style="display:none;">
+                    <span class="schema-label">数据库 / 模式</span>
+                    <select id="schemaSelect" onchange="onSchemaChange()">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <div class="sb-body" id="sidebarBody">
+                    <div class="tbl-search">
+                        <input type="text" id="tableSearch" placeholder="&#128269; 搜索表名..." oninput="filterTables()">
+                    </div>
+                    <div id="tableListWrap">
+                        <div style="padding: 16px; text-align: center; color: #94a3b8; font-size: .8rem;">
+                            <div class="spinner-ring mx-auto mb-2" style="width:20px;height:20px;border-width:2px;"></div>
+                            加载中...
+                        </div>
+                    </div>
+                </div>
+                <div class="sb-footer">
+                    数据源 <strong id="sbDsName">-</strong> | <span id="sbTableCount">0</span> 张表
+                </div>
+            </div>
+
+            <!-- 右侧主区域 -->
+            <div class="main-area">
+                <!-- 工具栏（标题并入，去掉大 page-header） -->
+                <div class="toolbar">
+                    <div class="tb-left">
+                        <span class="tb-title">数据浏览</span>
+                        <select class="form-select form-select-sm" id="dsSelect" onchange="onDsChange()" style="width:180px;font-size:.82rem;">
+                            <option value="">选择数据源...</option>
+                            <option th:each="ds : ${dataSources}" th:value="${ds.id}" th:text="${ds.name}"></option>
+                        </select>
+                        <span class="tb-table" id="currentTableLabel" style="display:none;"></span>
+                        <span class="tb-rowcount" id="rowCountLabel" style="display:none;"></span>
+                    </div>
+                    <div class="tb-right">
+                        <div class="mode-tabs">
+                            <div class="mode-tab active" onclick="switchMode('browse', this)">浏览模式</div>
+                            <div class="mode-tab" onclick="switchMode('sql', this)">SQL 模式</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SQL 编辑器（SQL 模式） -->
+                <div class="sql-editor" id="sqlEditor" style="display:none;">
+                    <div class="se-header">
+                        <span>&#9000; SQL 查询</span>
+                        <span class="se-hint" id="sqlHint"></span>
+                    </div>
+                    <textarea id="sqlInput" placeholder="SELECT * FROM table_name WHERE ...&#10;-- 仅支持 SELECT 查询，暂不支持多条语句"></textarea>
+                    <div class="se-footer">
+                        <span class="se-hint" id="sqlError" style="color:#dc2626;display:none;"></span>
+                        <button class="btn btn-primary btn-sm" onclick="runSqlQuery()">&#9654; 执行查询</button>
+                    </div>
+                </div>
+
+                <!-- 数据面板：表体滚动，底部分页固定可见 -->
+                <div class="data-panel">
+                    <div class="dp-header">
+                        <span class="dp-title" id="dpTitle">请选择数据源和表</span>
+                        <span class="dp-title" style="font-weight:400;font-size:.72rem;color:#64748b;" id="dpInfo"></span>
+                    </div>
+                    <div class="dp-body" id="dataBody">
+                        <div class="empty-state-viewer">
+                            <span class="es-icon">&#128451;</span>
+                            <h5>暂无数据</h5>
+                            <p style="font-size:.82rem;">选择数据源和表后开始浏览</p>
+                        </div>
+                    </div>
+                    <div class="dp-footer" id="dataFooter">
+                        <div class="pagination-info" id="paginationInfo">共 0 条</div>
+                        <div class="pagination-controls">
+                            <label style="font-size:.75rem;color:#64748b;margin-right:4px;">每页</label>
+                            <select class="page-btn" id="pageSizeSelect" onchange="onPageSizeChange()" style="padding:4px 6px;">
+                                <option value="20">20</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                            <button class="page-btn" id="btnFirst" onclick="goPage(1)" disabled>&#171;</button>
+                            <button class="page-btn" id="btnPrev" onclick="goPage(currentPage-1)" disabled>&#8249;</button>
+                            <input type="text" class="page-input" id="pageInput" value="1">
+                            <span style="font-size:.75rem;color:#64748b;">/ <span id="totalPagesLabel">1</span></span>
+                            <button class="page-btn" id="btnNext" onclick="goPage(currentPage+1)" disabled>&#8250;</button>
+                            <button class="page-btn" id="btnLast" onclick="goPage(totalPages)" disabled>&#187;</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        var currentDsId = null;
+        var currentCatalog = null;  // MySQL: 数据库名
+        var currentSchema = null;   // PG/Oracle/SQLServer: schema
+        var currentTable = null;
+        var currentMode = 'browse'; // 'browse' | 'sql'
+        var currentPage = 1;
+        var totalPages = 1;
+        var currentPageSize = 50;
+        var allTables = [];
+        var allSchemas = [];
+        var columnInfo = {}; // key: catalog|schema|tableName -> [{name,type,size,nullable,isPk}]
+
+        function columnCacheKey() {
+            return (currentCatalog || '') + '|' + (currentSchema || '') + '|' + (currentTable || '');
+        }
+
+        $(function() {
+            $('#sqlInput').on('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && e.keyCode === 13) {
+                    runSqlQuery();
+                }
+            });
+            $('#pageInput').on('keydown', function(e) {
+                if (e.keyCode === 13) {
+                    var p = parseInt($(this).val());
+                    if (p >= 1 && p <= totalPages) { goPage(p); }
+                }
+            });
+        });
+
+        // ===== 数据源切换 =====
+        function onDsChange() {
+            var dsId = $('#dsSelect').val();
+            if (!dsId) {
+                resetViewer();
+                return;
+            }
+            currentDsId = dsId;
+            var dsName = $('#dsSelect option:selected').text();
+            $('#sbDsName').text(dsName);
+            currentCatalog = null;
+            currentSchema = null;
+            currentTable = null;
+            currentPage = 1;
+            clearDataPanel();
+            loadSchemas(dsId);
+        }
+
+        // ===== Schema 列表 =====
+        function loadSchemas(dsId) {
+            $('#tableListWrap').html('<div style="padding:16px;text-align:center;"><div class="spinner-ring mx-auto mb-2" style="width:20px;height:20px;border-width:2px;"></div><span style="font-size:.78rem;color:#94a3b8;">加载数据库列表...</span></div>');
+            $.get('/viewer/schemas/' + dsId, function(res) {
+                if (res.success) {
+                    allSchemas = res.schemas || [];
+                    renderSchemaSelector(allSchemas, res.defaultSchema);
+                    // 自动选择默认/第一个 schema
+                    if (allSchemas.length > 0) {
+                        var selIdx = 0;
+                        for (var i = 0; i < allSchemas.length; i++) {
+                            if (allSchemas[i].isDefault || allSchemas[i].name === res.defaultSchema) { selIdx = i; break; }
+                        }
+                        $('#schemaSelect').prop('selectedIndex', selIdx + 1); // +1 因为「全部」占第0项
+                        applySchemaSelection();
+                    } else {
+                        loadTables(dsId, null, null);
+                    }
+                } else {
+                    $('#tableListWrap').html('<div style="padding:16px;color:#dc2626;font-size:.8rem;">获取数据库列表失败: ' + (res.msg || '未知错误') + '</div>');
+                }
+            }).fail(function() {
+                $('#tableListWrap').html('<div style="padding:16px;color:#dc2626;font-size:.8rem;">请求失败</div>');
+            });
+        }
+
+        function renderSchemaSelector(schemas, defaultSchema) {
+            if (!schemas || schemas.length <= 1) {
+                $('#schemaSelector').hide();
+                return;
+            }
+            $('#schemaSelector').show();
+            var html = '<span class="schema-label">数据库 / 模式 (' + schemas.length + '个)</span>';
+            html += '<select id="schemaSelect" onchange="onSchemaChange()">';
+            html += '<option value="">全部</option>';
+            schemas.forEach(function(s) {
+                var label = s.name;
+                if (s.isDefault) label += ' (默认)';
+                html += '<option value="' + escHtml(s.name) + '" data-type="' + (s.type || 'schema') + '">' + escHtml(label) + '</option>';
+            });
+            html += '</select>';
+            $('#schemaSelector').html(html);
+        }
+
+        function onSchemaChange() {
+            applySchemaSelection();
+        }
+
+        function applySchemaSelection() {
+            var val = $('#schemaSelect').val();
+            var opt = $('#schemaSelect option:selected');
+            if (!val) {
+                // 选择了「全部」
+                currentCatalog = null;
+                currentSchema = null;
+            } else {
+                var type = opt.data('type') || 'schema';
+                if (type === 'catalog') {
+                    currentCatalog = val;
+                    currentSchema = null;
+                } else {
+                    currentSchema = val;
+                    currentCatalog = null;
+                }
+            }
+            currentTable = null;
+            currentPage = 1;
+            $('#currentTableLabel').hide();
+            $('#rowCountLabel').hide();
+            clearDataPanel();
+            loadTables(currentDsId, currentCatalog, currentSchema);
+        }
+
+        // ===== 加载表列表 =====
+        function loadTables(dsId, catalog, schema) {
+            $('#tableListWrap').html('<div style="padding:16px;text-align:center;"><div class="spinner-ring mx-auto mb-2" style="width:20px;height:20px;border-width:2px;"></div><span style="font-size:.78rem;color:#94a3b8;">加载表列表...</span></div>');
+            $.get('/viewer/tables/' + dsId, {
+                catalog: catalog || '',
+                schema: schema || ''
+            }, function(res) {
+                if (res.success) {
+                    allTables = res.tables || [];
+                    $('#sbTableCount').text(allTables.length);
+                    renderTableList(allTables);
+                    // 切换库后，带着搜索框文字联动过滤
+                    filterTables();
+                } else {
+                    $('#tableListWrap').html('<div style="padding:16px;color:#dc2626;font-size:.8rem;">加载失败: ' + (res.msg || '未知错误') + '</div>');
+                }
+            }).fail(function() {
+                $('#tableListWrap').html('<div style="padding:16px;color:#dc2626;font-size:.8rem;">请求失败</div>');
+            });
+        }
+
+        function renderTableList(tables) {
+            if (!tables || tables.length === 0) {
+                $('#tableListWrap').html('<div style="padding:16px;text-align:center;color:#94a3b8;font-size:.8rem;">该模式下暂无表</div>');
+                return;
+            }
+            var html = '';
+            tables.forEach(function(t) {
+                var icon = t.type === 'VIEW' ? '&#128065;' : '&#128451;';
+                html += '<div class="tbl-item" data-table="' + escHtml(t.name) + '" onclick="selectTable(\'' + escHtml(t.name) + '\', this)">' +
+                    '<span class="tbl-icon">' + icon + '</span>' +
+                    '<span>' + escHtml(t.name) + '</span>' +
+                    '</div>';
+            });
+            $('#tableListWrap').html(html);
+        }
+
+        function filterTables() {
+            var kw = $('#tableSearch').val().toLowerCase();
+            $('#tableListWrap .tbl-item').each(function() {
+                var name = ($(this).data('table') || '').toLowerCase();
+                $(this).toggle(name.indexOf(kw) >= 0);
+            });
+        }
+
+        // ===== 选择表 =====
+        function selectTable(tableName, el) {
+            currentTable = tableName;
+            currentPage = 1;
+            $('#tableListWrap .tbl-item').removeClass('active');
+            $(el).addClass('active');
+            $('#currentTableLabel').text('📋 ' + tableName).show();
+
+            loadTableData();
+            loadColumns();
+        }
+
+        function loadColumns() {
+            if (!currentDsId || !currentTable) return;
+            var key = columnCacheKey();
+            if (columnInfo[key]) return;
+            $.get('/viewer/columns/' + currentDsId + '?table=' + encodeURIComponent(currentTable)
+                + '&catalog=' + encodeURIComponent(currentCatalog || '')
+                + '&schema=' + encodeURIComponent(currentSchema || ''), function(res) {
+                if (res.success) {
+                    columnInfo[key] = res.columns;
+                }
+            });
+        }
+
+        function loadTableData() {
+            if (!currentDsId || !currentTable) return;
+            $('#dataBody').html('<div class="loading-overlay"><div class="spinner-ring"></div></div>');
+            $('#dpTitle').text('📋 ' + currentTable);
+            $('#dpInfo').text('');
+
+            $.get('/viewer/table-data/' + currentDsId, {
+                table: currentTable,
+                page: currentPage,
+                size: currentPageSize,
+                catalog: currentCatalog || '',
+                schema: currentSchema || ''
+            }, function(res) {
+                if (res.success) {
+                    renderDataTable(res);
+                } else {
+                    $('#dataBody').html('<div class="error-box">查询失败: ' + (res.msg || '未知错误') + '</div>');
+                }
+            }).fail(function() {
+                $('#dataBody').html('<div class="error-box">请求失败，请检查网络连接</div>');
+            });
+        }
+
+        // ===== 渲染数据表格 =====
+        function renderDataTable(data) {
+            var columns = data.columns || [];
+            var rows = data.rows || [];
+            totalPages = data.totalPages || 1;
+
+            var key = columnCacheKey();
+            var cols = columnInfo[key] || [];
+            var pkNames = {};
+            cols.forEach(function(c) { if (c.isPk) pkNames[c.name] = true; });
+
+            var thead = '<thead><tr>';
+            thead += '<th style="width:40px;">#</th>';
+            columns.forEach(function(col) {
+                thead += '<th class="' + (pkNames[col] ? 'pk-col' : '') + '">' + escHtml(col) + '</th>';
+            });
+            thead += '</tr></thead>';
+
+            var tbody = '<tbody>';
+            if (rows.length === 0) {
+                tbody += '<tr><td colspan="' + (columns.length + 1) + '" style="text-align:center;padding:30px;color:#94a3b8;">暂无数据</td></tr>';
+            } else {
+                var startIdx = (currentPage - 1) * currentPageSize;
+                rows.forEach(function(row, i) {
+                    tbody += '<tr>';
+                    tbody += '<td style="color:#94a3b8;font-size:.72rem;width:40px;">' + (startIdx + i + 1) + '</td>';
+                    row.forEach(function(val) {
+                        if (val === null || val === undefined) {
+                            tbody += '<td class="null-val">NULL</td>';
+                        } else {
+                            var display = String(val);
+                            if (display.length > 200) display = display.substring(0, 200) + '...';
+                            tbody += '<td title="' + escHtml(String(val)) + '">' + escHtml(display) + '</td>';
+                        }
+                    });
+                    tbody += '</tr>';
+                });
+            }
+            tbody += '</tbody>';
+
+            $('#dataBody').html('<table class="data-table">' + thead + tbody + '</table>');
+            $('#dataFooter').show();
+            updatePagination(data);
+        }
+
+        function updatePagination(data) {
+            var total = data.total || 0;
+            var page = data.page || 1;
+            var size = data.pageSize || currentPageSize;
+            currentPage = page;
+            currentPageSize = size;
+            totalPages = data.totalPages || 1;
+
+            $('#paginationInfo').text('共 ' + total.toLocaleString() + ' 条');
+            $('#totalPagesLabel').text(totalPages);
+            $('#pageInput').val(page);
+
+            $('#btnFirst,#btnPrev').prop('disabled', page <= 1);
+            $('#btnNext,#btnLast').prop('disabled', page >= totalPages);
+            $('#dpInfo').text('第 ' + page + ' 页 / 共 ' + totalPages + ' 页');
+        }
+
+        // ===== 分页操作 =====
+        function goPage(p) {
+            if (p < 1 || p > totalPages) return;
+            currentPage = p;
+            if (currentMode === 'sql') {
+                runSqlQuery();
+            } else {
+                loadTableData();
+            }
+        }
+
+        function onPageSizeChange() {
+            currentPageSize = parseInt($('#pageSizeSelect').val());
+            currentPage = 1;
+            if (currentMode === 'sql') {
+                runSqlQuery();
+            } else {
+                loadTableData();
+            }
+        }
+
+        // ===== 模式切换 =====
+        function switchMode(mode, btn) {
+            currentMode = mode;
+            $('.mode-tab').removeClass('active');
+            $(btn).addClass('active');
+            if (mode === 'sql') {
+                $('#sqlEditor').slideDown(200);
+                if (currentTable && !$('#sqlInput').val()) {
+                    $('#sqlInput').val('SELECT * FROM ' + currentTable);
+                }
+                $('#sqlHint').text('Ctrl+Enter 执行查询');
+            } else {
+                $('#sqlEditor').slideUp(200);
+                if (currentTable) loadTableData();
+            }
+        }
+
+        // ===== SQL 查询 =====
+        function runSqlQuery() {
+            if (!currentDsId) { showToast('请先选择数据源', 'warning'); return; }
+
+            var sql = $('#sqlInput').val().trim();
+            if (!sql) { showToast('请输入 SQL 语句', 'warning'); return; }
+
+            currentPage = 1;
+
+            $('#sqlError').hide();
+            $('#dataBody').html('<div class="loading-overlay"><div class="spinner-ring"></div></div>');
+            $('#dpTitle').text('&#9000; SQL 查询结果');
+            $('#dpInfo').text('');
+
+            $.ajax({
+                url: '/viewer/sql-query/' + currentDsId,
+                type: 'POST',
+                data: {
+                    sql: sql,
+                    page: currentPage,
+                    size: currentPageSize
+                },
+                success: function(res) {
+                    if (res.success) {
+                        renderDataTable(res);
+                    } else {
+                        $('#dataBody').html('<div class="error-box">' + escHtml(res.msg || '查询失败') + '</div>');
+                    }
+                },
+                error: function(xhr) {
+                    var msg = '请求失败';
+                    try {
+                        var err = JSON.parse(xhr.responseText);
+                        msg = err.msg || err.message || msg;
+                    } catch(e) {}
+                    $('#dataBody').html('<div class="error-box">' + escHtml(msg) + '</div>');
+                }
+            });
+        }
+
+        // ===== 工具函数 =====
+        function resetViewer() {
+            currentDsId = null;
+            currentCatalog = null;
+            currentSchema = null;
+            currentTable = null;
+            allTables = [];
+            allSchemas = [];
+            $('#schemaSelector').hide();
+            $('#tableListWrap').html('<div class="empty-state-viewer" style="padding:30px 10px;"><p style="font-size:.78rem;">请选择数据源</p></div>');
+            $('#sbDsName').text('-');
+            $('#sbTableCount').text('0');
+            $('#currentTableLabel').hide();
+            $('#rowCountLabel').hide();
+            clearDataPanel();
+        }
+
+        function clearDataPanel() {
+            $('#dataBody').html('<div class="empty-state-viewer"><span class="es-icon">&#128451;</span><h5>暂无数据</h5><p style="font-size:.82rem;">选择数据源和表后开始浏览</p></div>');
+            $('#paginationInfo').text('共 0 条');
+            $('#totalPagesLabel').text('1');
+            $('#pageInput').val('1');
+            $('#btnFirst,#btnPrev,#btnNext,#btnLast').prop('disabled', true);
+            $('#dpTitle').text('请选择数据源和表');
+            $('#dpInfo').text('');
+            currentPage = 1;
+            totalPages = 1;
+        }
+
+        function showToast(msg, type) {
+            type = type || 'info';
+            var el = $('<div class="toast-msg toast-' + type + '">' + escHtml(msg) + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, 3000);
+        }
+
+        function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

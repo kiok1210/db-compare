@@ -1,0 +1,60 @@
+# 本地压测：双 MySQL（源 3307 / 目标 3308）
+# GoldenDB 无公开 Docker 镜像；协议兼容场景用 MySQL 8 代替。
+# 启动：docker compose -f scripts/loadtest/docker-compose.yml up -d
+
+services:
+  mysql-source:
+    image: mysql:8.0
+    container_name: dbcompare-mysql-source
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: loadtest
+      MYSQL_USER: sync
+      MYSQL_PASSWORD: sync123
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max_allowed_packet=256M
+      - --innodb_buffer_pool_size=512M
+      - --disable-log-bin
+    volumes:
+      - mysql_source_data:/var/lib/mysql
+      - ./docker/init-source.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mysql-target:
+    image: mysql:8.0
+    container_name: dbcompare-mysql-target
+    restart: unless-stopped
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: loadtest
+      MYSQL_USER: sync
+      MYSQL_PASSWORD: sync123
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max_allowed_packet=256M
+      - --innodb_buffer_pool_size=512M
+      - --disable-log-bin
+    volumes:
+      - mysql_target_data:/var/lib/mysql
+      - ./docker/init-target.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  mysql_source_data:
+  mysql_target_data:

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创建同步任务 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <script th:src="@{/js/schema-mapping.js}"></script>
+    <style>
+        .schema-selector-compare { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: .6rem .8rem; }
+        .schema-checkbox-list { max-height: 180px; overflow-y: auto; margin-top: 4px; }
+        .schema-checkbox-list label { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: .82rem; cursor: pointer; margin: 0; }
+        .schema-select-actions { display: flex; gap: 8px; margin-bottom: 4px; }
+        .schema-select-actions .btn-schema-sm { font-size: .72rem; padding: 1px 10px; border-radius: 12px; background: none; border: 1px solid var(--color-border); cursor: pointer; color: var(--color-text-muted); }
+        .table-selector-wrap { max-height: 360px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: .5rem; }
+        .table-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: .82rem; cursor: pointer; border-radius: 4px; margin: 0; }
+        .table-item:hover { background: var(--color-primary-bg); }
+        .table-item .schema-tag { font-size: .68rem; color: var(--color-text-muted); background: #f1f5f9; padding: 1px 6px; border-radius: 8px; }
+        .mode-card { border: 2px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; cursor: pointer; height: 100%; transition: .15s; }
+        .mode-card:hover { border-color: var(--color-primary-light); }
+        .mode-card.selected { border-color: var(--color-primary); background: var(--color-primary-bg); }
+        .mode-card .mode-title { font-weight: 700; font-size: .95rem; margin-bottom: .25rem; }
+        .mode-card .mode-desc { font-size: .78rem; color: var(--color-text-muted); margin: 0; }
+        .table-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: .75rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white active" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <div class="submitting-overlay" id="submittingOverlay" style="display:none;">
+        <div class="submitting-box">
+            <div class="spinner-ring mx-auto mb-3"></div>
+            <h5 class="fw-bold mb-1">正在提交同步任务</h5>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <a href="/sync/list" class="back-link">&#8592; 返回列表</a>
+            <h4 class="mb-0 fw-bold">创建同步任务</h4>
+        </div>
+
+        <div class="wizard-steps mb-4">
+            <div class="wizard-step active" id="wizStep1"><div class="step-circle">1</div><div class="step-label">数据源</div></div>
+            <div class="wizard-step" id="wizStep2"><div class="step-circle">2</div><div class="step-label">模式与表</div></div>
+            <div class="wizard-step" id="wizStep3"><div class="step-circle">3</div><div class="step-label">确认执行</div></div>
+        </div>
+
+        <div class="card" style="box-shadow: var(--shadow-md);">
+            <div class="card-body p-4">
+                <!-- Step 1 -->
+                <div id="panel1" class="step-panel active">
+                    <div class="mb-4">
+                        <label class="form-label">任务名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="taskName" placeholder="例如：MySQL多库同步到GoldenDB_20260713">
+                    </div>
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <div class="section-title">源数据源（MySQL 等）</div>
+                            <div id="sourceDsList"></div>
+                            <div class="schema-selector-compare mt-2" id="sourceSchemaSelector" style="display:none;">
+                                <label class="form-label" style="font-size:.78rem;font-weight:600;">选择源库 <small class="text-muted">(多选)</small></label>
+                                <div class="schema-select-actions">
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('source', true)">全选</button>
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('source', false)">全不选</button>
+                                </div>
+                                <div class="schema-checkbox-list" id="sourceSchemaCheckList"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="section-title">目标数据源（GoldenDB 等）</div>
+                            <div id="targetDsList"></div>
+                            <div class="schema-selector-compare mt-2" id="targetSchemaSelector" style="display:none;">
+                                <label class="form-label" style="font-size:.78rem;font-weight:600;">选择目标库 <small class="text-muted">(多选)</small></label>
+                                <div class="schema-select-actions">
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('target', true)">全选</button>
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('target', false)">全不选</button>
+                                </div>
+                                <div class="schema-checkbox-list" id="targetSchemaCheckList"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card border-0 bg-light p-3 rounded-3 mt-3" id="schemaMappingPanel" style="display:none;">
+                        <div class="section-title mb-2">&#128279; 库名映射 <small class="text-muted">(源库名与目标库名不一致时配置，库对库、表同名)</small></div>
+                        <div id="schemaMappingRows"></div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div id="panel2" class="step-panel" style="display:none;">
+                    <div class="section-title mb-2">同步模式</div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <div class="mode-card" data-mode="DATA_SYNC" onclick="selectSyncMode(this)">
+                                <div class="mode-title">差异同步（类 Navicat）</div>
+                                <p class="mode-desc">按主键 INSERT/UPDATE/DELETE。对应 Navicat Data Synchronization，表须有主键。</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mode-card" data-mode="PK_UPSERT" onclick="selectSyncMode(this)">
+                                <div class="mode-title">增量同步</div>
+                                <p class="mode-desc">不清空；主键存在则 UPDATE，否则 INSERT（不删多余行）。</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mode-card" data-mode="DATA_TRANSFER" onclick="selectSyncMode(this)">
+                                <div class="mode-title">数据传输（类 Navicat）</div>
+                                <p class="mode-desc">清空目标表后全量写入。对应 Navicat Data Transfer。</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mode-card selected" data-mode="FULL_DML" onclick="selectSyncMode(this)">
+                                <div class="mode-title">DML 全量（默认）</div>
+                                <p class="mode-desc">分批 DELETE 后批量 INSERT。仅需 DML。</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mode-card" data-mode="FULL_DDL" onclick="selectSyncMode(this)">
+                                <div class="mode-title">DDL 全量</div>
+                                <p class="mode-desc">CREATE LIKE / TRUNCATE，需 DDL 权限。</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mode-card" data-mode="INCREMENTAL" onclick="selectSyncMode(this)">
+                                <div class="mode-title">仅插入</div>
+                                <p class="mode-desc">不清空；INSERT IGNORE，冲突跳过。</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mode-card" data-mode="DATAX" onclick="selectSyncMode(this)">
+                                <div class="mode-title">DataX 工具同步</div>
+                                <p class="mode-desc">调用本机官方 DataX；大表推荐。清表慢时可在参数设置选「不清空 + replace」。</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section-title mb-2">表范围</div>
+                    <ul class="nav nav-tabs mb-3">
+                        <li class="nav-item"><button class="nav-link active" type="button" id="tabBtnAll" onclick="switchTableTab('all')">全部表</button></li>
+                        <li class="nav-item"><button class="nav-link" type="button" id="tabBtnSelect" onclick="switchTableTab('select')">手动选择</button></li>
+                        <li class="nav-item"><button class="nav-link" type="button" id="tabBtnText" onclick="switchTableTab('text')">文本指定</button></li>
+                    </ul>
+                    <div id="tabAll">
+                        <label class="form-label">排除表（可选，逗号分隔，支持 % 通配）</label>
+                        <input type="text" class="form-control" id="excludeTablesAll" placeholder="tmp_%,log_%">
+                        <div class="form-hint text-muted mt-1" style="font-size:.75rem;">将同步源库所选范围内的全部业务表（可排除临时表）。</div>
+                    </div>
+                    <div id="tabSelect" style="display:none;">
+                        <div class="table-toolbar">
+                            <input type="text" class="form-control form-control-sm" id="tableSearch" placeholder="搜索表名..." style="max-width:220px;" oninput="renderTableList()">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAllTables(true)">全选</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAllTables(false)">全不选</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="loadSourceTables(true)">刷新列表</button>
+                            <small class="text-muted ms-auto">已选 <b id="selectedTableCount">0</b> / <span id="loadedTableCount">0</span> 张</small>
+                        </div>
+                        <div id="tableListWrap"><div class="text-muted small">进入本页后自动加载表列表…</div></div>
+                    </div>
+                    <div id="tabText" style="display:none;">
+                        <label class="form-label">包含表</label>
+                        <textarea class="form-control mb-2" id="includeTablesText" rows="3" placeholder="user,order,% 或 库名::表名"></textarea>
+                        <label class="form-label">排除表</label>
+                        <textarea class="form-control" id="excludeTablesText" rows="2" placeholder="tmp_%"></textarea>
+                    </div>
+                    <div class="mt-3 row g-3">
+                        <div class="col-auto">
+                            <label class="form-label">批次大小（批量 INSERT）</label>
+                            <input type="number" class="form-control" id="batchSize" value="20000" min="1000" max="50000" step="1000" style="max-width:200px;">
+                        </div>
+                        <div class="col-auto">
+                            <label class="form-label">本次连接数</label>
+                            <input type="number" class="form-control" id="parallelThreads" value="8" min="1" max="20" step="1" style="max-width:120px;">
+                            <div class="form-hint text-muted mt-1" style="font-size:.72rem;">默认=同步表数，最大 20；可临时调整。同时同步几张表。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div id="panel3" class="step-panel" style="display:none;">
+                    <div id="confirmSummary"></div>
+                </div>
+
+                <div class="d-flex justify-content-between mt-4 pt-3 border-top">
+                    <button class="btn btn-outline-secondary" id="prevBtn" onclick="prevStep()" style="display:none;">上一步</button>
+                    <div class="ms-auto d-flex gap-2">
+                        <button class="btn btn-primary" id="nextBtn" onclick="nextStep()">下一步</button>
+                        <button class="btn btn-success fw-bold" id="submitBtn" onclick="submitTask()" style="display:none;">立即同步</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        var allDataSources = /*[[${dataSources}]]*/ [];
+        var currentStep = 1;
+        var selectedSourceId = null, selectedTargetId = null;
+        var srcCatalog = null, tgtCatalog = null;
+        var currentTableTab = 'all';
+        var selectedSyncMode = 'FULL_DML';
+        var selectedTables = [], loadedTables = [];
+        var tablesLoading = false;
+        var parallelManual = false;
+        var settingsParallelFallback = 8;
+
+        function defaultConnCount() {
+            var n = selectedTables.length;
+            if (currentTableTab === 'select' && n > 0) {
+                return Math.max(1, Math.min(20, n));
+            }
+            if (currentTableTab === 'text') {
+                var raw = ($('#includeTablesText').val() || '').split(/[,;\s]+/).filter(function(s) { return !!s; });
+                if (raw.length > 0) return Math.max(1, Math.min(20, raw.length));
+            }
+            return Math.max(1, Math.min(20, settingsParallelFallback));
+        }
+        function syncConnDefault() {
+            if (!parallelManual) {
+                $('#parallelThreads').val(defaultConnCount());
+            }
+        }
+
+        $(function() {
+            renderDataSourceList();
+            var d = new Date();
+            if (!$('#taskName').val()) {
+                $('#taskName').val('数据同步_' + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()));
+            }
+            $('#parallelThreads').on('input change', function() { parallelManual = true; });
+            $.getJSON('/settings/api').done(function(res) {
+                if (!res || !res.success || !res.settings) return;
+                var s = res.settings;
+                settingsParallelFallback = s.syncParallelThreads || 8;
+                $('#batchSize').val(s.syncBatchSize);
+                syncConnDefault();
+                if (s.syncDefaultMode) {
+                    selectedSyncMode = s.syncDefaultMode;
+                    $('.mode-card').removeClass('selected');
+                    $('.mode-card[data-mode="' + s.syncDefaultMode + '"]').addClass('selected');
+                }
+            });
+        });
+
+        function showToast(msg, type) {
+            var el = $('<div class="toast-msg toast-' + (type||'info') + '">' + msg + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, 3000);
+        }
+        function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+        function selectSyncMode(el) {
+            $('.mode-card').removeClass('selected');
+            $(el).addClass('selected');
+            selectedSyncMode = $(el).data('mode') || 'FULL_DML';
+        }
+
+        function syncModeLabel(mode) {
+            if (mode === 'DATA_SYNC') return '差异同步（类 Navicat）';
+            if (mode === 'PK_UPSERT') return '增量同步';
+            if (mode === 'DATA_TRANSFER') return '数据传输（类 Navicat）';
+            if (mode === 'FULL_DDL') return 'DDL 全量（CREATE LIKE / TRUNCATE）';
+            if (mode === 'INCREMENTAL') return '仅插入（INSERT IGNORE）';
+            if (mode === 'DATAX') return 'DataX 工具同步';
+            return 'DML 全量（分批 DELETE + INSERT）';
+        }
+
+        function renderDataSourceList() {
+            if (!allDataSources.length) {
+                var empty = '<div class="alert alert-warning" style="font-size:.82rem;">暂无数据源，请先<a href="/datasource/add">添加数据源</a></div>';
+                $('#sourceDsList,#targetDsList').html(empty);
+                return;
+            }
+            var html = '';
+            allDataSources.forEach(function(ds) {
+                html += '<div class="ds-card mb-2" data-id="' + ds.id + '"><div class="d-flex justify-content-between align-items-center">' +
+                    '<div><div class="ds-name">' + escHtml(ds.name) + '</div><div class="ds-meta">' + escHtml(ds.url||'') + '</div></div>' +
+                    '<span class="badge bg-secondary">' + escHtml(ds.dbType||'') + '</span></div></div>';
+            });
+            $('#sourceDsList').html(html);
+            $('#targetDsList').html(html);
+            $('#sourceDsList .ds-card').on('click', function() {
+                $('#sourceDsList .ds-card').removeClass('selected'); $(this).addClass('selected');
+                selectedSourceId = $(this).data('id'); loadedTables = []; loadSchemas(selectedSourceId, 'source');
+            });
+            $('#targetDsList .ds-card').on('click', function() {
+                $('#targetDsList .ds-card').removeClass('selected'); $(this).addClass('selected');
+                selectedTargetId = $(this).data('id'); loadSchemas(selectedTargetId, 'target');
+            });
+        }
+
+        function loadSchemas(dsId, side) {
+            $.get('/viewer/schemas/' + dsId, function(res) {
+                var sel = side === 'source' ? '#sourceSchemaSelector' : '#targetSchemaSelector';
+                var list = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+                if (!res.success || !res.schemas || res.schemas.length <= 1) { $(sel).hide(); updateCatalog(side, null); return; }
+                var html = '';
+                res.schemas.forEach(function(s) {
+                    var checked = SchemaMappingUi.defaultSchemaChecked(s.name) ? ' checked' : '';
+                    html += '<label><input type="checkbox" value="' + escHtml(s.name) + '"' + checked + ' onchange="onSchemaChange(\'' + side + '\')">' +
+                        '<span>' + escHtml(s.name) + (s.isDefault ? ' <small>(默认)</small>' : '') + '</span></label>';
+                });
+                $(list).html(html); $(sel).show(); onSchemaChange(side);
+            }).fail(function() { if (side === 'source') $('#sourceSchemaSelector').hide(); else $('#targetSchemaSelector').hide(); });
+        }
+
+        function schemaCheckAll(side, check) {
+            var list = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            $(list + ' input').prop('checked', check); onSchemaChange(side);
+        }
+
+        function onSchemaChange(side) {
+            var list = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            var checked = $(list + ' input:checked').map(function() { return $(this).val(); }).get();
+            var total = $(list + ' input').length;
+            // 全选/全不选 → 传空表示「全库业务库」；部分选择 → 逗号分隔
+            if (checked.length === 0 || checked.length === total) {
+                updateCatalog(side, null);
+            } else {
+                updateCatalog(side, checked.join(','));
+            }
+            renderSchemaMapping();
+        }
+
+        function renderSchemaMapping() {
+            SchemaMappingUi.renderSchemaMappingPanel({
+                srcChecked: $('#sourceSchemaCheckList input:checked').map(function() { return $(this).val(); }).get(),
+                tgtChecked: $('#targetSchemaCheckList input:checked').map(function() { return $(this).val(); }).get(),
+                allSrc: $('#sourceSchemaCheckList input').map(function() { return $(this).val(); }).get(),
+                allTgt: $('#targetSchemaCheckList input').map(function() { return $(this).val(); }).get(),
+                escHtml: escHtml
+            });
+        }
+
+        function getSchemaMapping() { return SchemaMappingUi.getSchemaMapping(); }
+        function getSchemaMappingDisplay() { return SchemaMappingUi.getSchemaMappingDisplay(); }
+
+        function updateCatalog(side, val) {
+            if (side === 'source') { srcCatalog = val; loadedTables = []; }
+            else tgtCatalog = val;
+        }
+
+        /** 传给表列表 API：优先用勾选的业务库，避免空串歧义 */
+        function resolveCatalogParam() {
+            var checked = $('#sourceSchemaCheckList input:checked').map(function() { return $(this).val(); }).get();
+            if (checked.length > 0) return checked.join(',');
+            if (srcCatalog) return srcCatalog;
+            return '';
+        }
+
+        function switchTableTab(tab) {
+            currentTableTab = tab;
+            $('#tabBtnAll,#tabBtnSelect,#tabBtnText').removeClass('active');
+            if (tab === 'all') $('#tabBtnAll').addClass('active');
+            else if (tab === 'select') $('#tabBtnSelect').addClass('active');
+            else $('#tabBtnText').addClass('active');
+            $('#tabAll,#tabSelect,#tabText').hide();
+            if (tab === 'all') $('#tabAll').show();
+            else if (tab === 'select') {
+                $('#tabSelect').show();
+                if (!loadedTables.length) loadSourceTables(false);
+            } else $('#tabText').show();
+        }
+
+        function loadSourceTables(force) {
+            if (!selectedSourceId) {
+                $('#tableListWrap').html('<div class="alert alert-warning mb-0">请先选择源数据源</div>');
+                return;
+            }
+            if (tablesLoading) return;
+            if (!force && loadedTables.length) { renderTableList(); return; }
+
+            tablesLoading = true;
+            $('#tableListWrap').html('<div class="text-muted small py-3">正在加载表列表，请稍候…</div>');
+            var catalog = resolveCatalogParam();
+            $.get('/datasource/tables/' + selectedSourceId, { catalog: catalog, schema: '' })
+                .done(function(res) {
+                    tablesLoading = false;
+                    if (!res.success) {
+                        $('#tableListWrap').html('<div class="alert alert-danger mb-0">' + escHtml(res.msg||'加载失败') + '</div>');
+                        return;
+                    }
+                    loadedTables = (res.tables || []).map(function(t) {
+                        return { name: t.name, rowCount: t.rowCount, selected: true };
+                    });
+                    if (!loadedTables.length) {
+                        $('#tableListWrap').html('<div class="alert alert-warning mb-0">未发现业务表。请检查源库勾选，或改用「文本指定」。</div>');
+                        $('#loadedTableCount').text(0);
+                        updateSelCount();
+                        return;
+                    }
+                    renderTableList();
+                    if (res.counted === false) {
+                        showToast('表数量较多，已跳过行数统计以加快加载', 'info');
+                    }
+                })
+                .fail(function(xhr) {
+                    tablesLoading = false;
+                    var msg = (xhr.responseJSON && xhr.responseJSON.msg) ? xhr.responseJSON.msg : '请求失败';
+                    $('#tableListWrap').html('<div class="alert alert-warning mb-0">加载失败：' + escHtml(msg) + '，请使用文本指定表名</div>');
+                });
+        }
+
+        function renderTableList() {
+            var q = ($('#tableSearch').val() || '').toLowerCase().trim();
+            var list = loadedTables.filter(function(t) {
+                return !q || t.name.toLowerCase().indexOf(q) >= 0;
+            });
+            if (!list.length) {
+                $('#tableListWrap').html('<div class="text-muted small py-3">无匹配表</div>');
+                updateSelCount();
+                return;
+            }
+            var items = list.map(function(t) {
+                var schemaName = '', display = t.name;
+                if (t.name.indexOf('::') >= 0) {
+                    var parts = t.name.split('::');
+                    schemaName = parts[0];
+                    display = parts[1];
+                }
+                var checked = t.selected !== false ? ' checked' : '';
+                var rowTxt = (t.rowCount != null) ? t.rowCount.toLocaleString() : '';
+                return '<label class="table-item">' +
+                    '<input type="checkbox" class="table-chk" value="' + escHtml(t.name) + '"' + checked + ' onchange="onTableChkChange(this)">' +
+                    (schemaName ? '<span class="schema-tag">' + escHtml(schemaName) + '</span>' : '') +
+                    '<span>' + escHtml(display) + '</span>' +
+                    '<span class="text-muted ms-auto">' + rowTxt + '</span></label>';
+            }).join('');
+            $('#tableListWrap').html('<div class="table-selector-wrap">' + items + '</div>');
+            $('#loadedTableCount').text(loadedTables.length);
+            updateSelCount();
+        }
+
+        function onTableChkChange(el) {
+            var name = $(el).val();
+            var checked = $(el).is(':checked');
+            for (var i = 0; i < loadedTables.length; i++) {
+                if (loadedTables[i].name === name) { loadedTables[i].selected = checked; break; }
+            }
+            updateSelCount();
+        }
+
+        function setAllTables(check) {
+            var q = ($('#tableSearch').val() || '').toLowerCase().trim();
+            loadedTables.forEach(function(t) {
+                if (!q || t.name.toLowerCase().indexOf(q) >= 0) t.selected = check;
+            });
+            renderTableList();
+        }
+
+        function updateSelCount() {
+            selectedTables = loadedTables.filter(function(t) { return t.selected !== false; }).map(function(t) { return t.name; });
+            // 搜索过滤时，以当前勾选框为准同步
+            if ($('.table-chk').length) {
+                selectedTables = loadedTables.filter(function(t) { return t.selected !== false; }).map(function(t) { return t.name; });
+            }
+            $('#selectedTableCount').text(selectedTables.length);
+            $('#loadedTableCount').text(loadedTables.length);
+            syncConnDefault();
+        }
+
+        function nextStep() {
+            if (currentStep === 1) {
+                if (!$('#taskName').val().trim()) { showToast('请输入任务名称', 'danger'); return; }
+                if (!selectedSourceId || !selectedTargetId) { showToast('请选择源和目标数据源', 'danger'); return; }
+                if (selectedSourceId === selectedTargetId) { showToast('源和目标不能相同', 'danger'); return; }
+                if (!SchemaMappingUi.validateSchemaMapping()) {
+                    showToast('请为每个源库选择目标库（库名映射）', 'danger'); return;
+                }
+            }
+            if (currentStep === 2) {
+                if (currentTableTab === 'select') {
+                    updateSelCount();
+                    if (!selectedTables.length) { showToast('请至少选择一张表', 'danger'); return; }
+                }
+                if (currentTableTab === 'text' && !$('#includeTablesText').val().trim() && !$('#excludeTablesText').val().trim()) {
+                    // 允许空=等同全部；不强制
+                }
+            }
+            if (currentStep < 3) {
+                currentStep++;
+                updateWizard();
+                if (currentStep === 2 && currentTableTab === 'select') loadSourceTables(false);
+                if (currentStep === 3) renderConfirm();
+            }
+        }
+
+        function prevStep() { if (currentStep > 1) { currentStep--; updateWizard(); } }
+
+        function updateWizard() {
+            for (var i = 1; i <= 3; i++) {
+                $('#panel' + i).toggle(i === currentStep);
+                $('#wizStep' + i).toggleClass('active', i === currentStep).toggleClass('done', i < currentStep);
+            }
+            $('#prevBtn').toggle(currentStep > 1);
+            $('#nextBtn').toggle(currentStep < 3);
+            $('#submitBtn').toggle(currentStep === 3);
+            if (currentStep === 2 && currentTableTab === 'select') loadSourceTables(false);
+        }
+
+        function renderConfirm() {
+            var src = allDataSources.find(function(d) { return d.id == selectedSourceId; });
+            var tgt = allDataSources.find(function(d) { return d.id == selectedTargetId; });
+            updateSelCount();
+            var tab = currentTableTab === 'all' ? '全部表' : currentTableTab === 'select' ? ('手动选择 ' + selectedTables.length + ' 张') : '文本指定';
+            var modeLabel = syncModeLabel(selectedSyncMode);
+            var rows = [
+                ['任务名称', escHtml($('#taskName').val())],
+                ['源数据源', src ? escHtml(src.name) + ' (' + src.dbType + ')' : '-'],
+                ['目标数据源', tgt ? escHtml(tgt.name) + ' (' + tgt.dbType + ')' : '-'],
+                ['源库', resolveCatalogParam() || '全部业务库'],
+                ['目标库', tgtCatalog || '全部'],
+                ['库名映射', getSchemaMappingDisplay()],
+                ['同步模式', modeLabel],
+                ['表范围', tab],
+                ['批次大小', $('#batchSize').val() + ' 条/批'],
+                ['本次连接数', ($('#parallelThreads').val() || String(defaultConnCount())) + '（最大 20）']
+            ];
+            var warn;
+            if (selectedSyncMode === 'DATA_TRANSFER') {
+                warn = '<div class="alert alert-warning mb-3" style="font-size:.82rem;"><strong>数据传输：</strong>将清空目标表后全量写入（类 Navicat Data Transfer）。</div>';
+            } else if (selectedSyncMode === 'DATA_SYNC') {
+                warn = '<div class="alert alert-info mb-3" style="font-size:.82rem;"><strong>差异同步：</strong>按主键 INSERT 新行、UPDATE 差异、DELETE 目标多余行。表须有主键；目标需 INSERT+UPDATE+DELETE。</div>';
+            } else if (selectedSyncMode === 'PK_UPSERT') {
+                warn = '<div class="alert alert-info mb-3" style="font-size:.82rem;"><strong>增量同步：</strong>不清空目标表；按主键 UPDATE 已有行、INSERT 新行（不删多余行）。</div>';
+            } else if (selectedSyncMode === 'INCREMENTAL') {
+                warn = '<div class="alert alert-info mb-3" style="font-size:.82rem;"><strong>仅插入：</strong>不会清空目标表；主键冲突行将被跳过（INSERT IGNORE），不更新已有行。</div>';
+            } else if (selectedSyncMode === 'FULL_DDL') {
+                warn = '<div class="alert alert-warning mb-3" style="font-size:.82rem;"><strong>DDL 全量：</strong>需要目标库 CREATE / RENAME / DROP 或 TRUNCATE 权限。无权限时会回退到 DML 分批 DELETE。</div>';
+            } else {
+                warn = '<div class="alert alert-warning mb-3" style="font-size:.82rem;"><strong>DML 全量：</strong>将分批 DELETE 目标表后写入。差异请用「差异同步」；增量请用「增量同步」。</div>';
+            }
+            var html = warn + '<div class="card border-0 bg-light p-3 rounded-3">';
+            rows.forEach(function(r) { html += '<div class="confirm-row"><div class="confirm-label">' + r[0] + '</div><div class="confirm-value">' + r[1] + '</div></div>'; });
+            html += '</div>';
+            $('#confirmSummary').html(html);
+        }
+
+        function buildFilters() {
+            var inc = '', exc = '';
+            if (currentTableTab === 'all') exc = $('#excludeTablesAll').val().trim();
+            else if (currentTableTab === 'select') {
+                updateSelCount();
+                inc = selectedTables.join(',');
+            } else {
+                inc = $('#includeTablesText').val().trim();
+                exc = $('#excludeTablesText').val().trim();
+            }
+            return { includeTables: inc, excludeTables: exc };
+        }
+
+        function submitTask() {
+            var f = buildFilters();
+            if (currentTableTab === 'select' && !f.includeTables) {
+                showToast('请至少选择一张表', 'danger'); return;
+            }
+            var task = {
+                taskName: $('#taskName').val().trim(),
+                sourceDataSourceId: selectedSourceId,
+                targetDataSourceId: selectedTargetId,
+                sourceSchema: resolveCatalogParam(),
+                targetSchema: tgtCatalog || '',
+                schemaMapping: getSchemaMapping(),
+                syncMode: selectedSyncMode || 'FULL_DML',
+                includeTables: f.includeTables,
+                excludeTables: f.excludeTables,
+                batchSize: parseInt($('#batchSize').val(), 10) || 20000,
+                parallelThreads: Math.min(20, Math.max(1, parseInt($('#parallelThreads').val(), 10) || defaultConnCount()))
+            };
+            $('#submittingOverlay').show();
+            $.ajax({
+                url: '/sync/execute', type: 'POST', contentType: 'application/json', data: JSON.stringify(task),
+                success: function(res) {
+                    $('#submittingOverlay').hide();
+                    if (res.success) { showToast('任务已启动', 'success'); setTimeout(function() { location.href = '/sync/progress/' + res.taskId; }, 600); }
+                    else showToast(res.msg || '失败', 'danger');
+                },
+                error: function() { $('#submittingOverlay').hide(); showToast('请求失败', 'danger'); }
+            });
+        }
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>同步报告 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/">数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white active" href="/report/list?tab=sync">比对报告</a>
+            </div>
+        </div>
+    </nav>
+    <div class="app-container py-4">
+        <div class="alert alert-warning">
+            <h5 class="fw-bold">同步报告暂不可用</h5>
+            <p class="mb-2" th:if="${error}" th:text="${error}">生成失败</p>
+            <p class="mb-2" th:unless="${error}">报告文件不存在或尚未生成。</p>
+            <a class="btn btn-sm btn-primary" th:href="@{/sync/progress/{id}(id=${taskId})}">返回任务详情</a>
+            <a class="btn btn-sm btn-outline-secondary" href="/report/list?tab=sync">报告列表</a>
+        </div>
+    </div>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

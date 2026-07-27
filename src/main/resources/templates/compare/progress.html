@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>比对任务进度 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <script th:src="@{/js/echarts.min.js}"></script>
+    <style>
+        .summary-stat { display: flex; align-items: center; gap: .75rem; }
+        .summary-stat .ss-val { font-size: 1.3rem; font-weight: 800; line-height: 1; }
+        .summary-stat .ss-lbl { font-size: .68rem; color: var(--color-text-muted); font-weight: 600; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white active" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="app-container">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <a href="/report/list" class="back-link">&#8592; 返回列表</a>
+            <h4 class="mb-0 fw-bold" id="pageTitle" style="background:none;-webkit-text-fill-color:var(--color-text);">比对任务进度</h4>
+        </div>
+
+        <div class="running-bar mb-3" id="runningBar" style="display:none;"></div>
+
+        <div class="row g-4">
+            <!-- Left: progress & status -->
+            <div class="col-md-4">
+                <div class="card h-100" style="box-shadow: var(--shadow-md);">
+                    <div class="card-body text-center p-4 d-flex flex-column align-items-center">
+                        <div class="progress-ring-wrap mb-3" id="ringWrap">
+                            <svg width="160" height="160" viewBox="0 0 160 160">
+                                <circle class="ring-track" cx="80" cy="80" r="68"/>
+                                <circle class="ring-fill" id="ringFill" cx="80" cy="80" r="68"
+                                        stroke-dasharray="427" stroke-dashoffset="427"/>
+                            </svg>
+                            <div class="ring-label">
+                                <div class="ring-pct" id="ringPct">0%</div>
+                                <div class="ring-sub" id="ringSub">等待中</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <span class="status-pill sp-muted" id="statusBadge">
+                                <span id="statusText">PENDING</span>
+                            </span>
+                        </div>
+
+                        <div class="row g-2 mb-3 w-100">
+                            <div class="col-6">
+                                <div class="stat-mini">
+                                    <div class="num text-success" id="statDone">0</div>
+                                    <div class="label">已处理表</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="stat-mini">
+                                    <div class="num text-secondary" id="statTotal">-</div>
+                                    <div class="label">总表数</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="text-muted small mb-3" id="currentTableWrap" style="display:none;">
+                            当前：<code id="currentTableName" style="color:var(--color-primary);"></code>
+                        </div>
+
+                        <div class="action-bar justify-content-center mt-auto">
+                            <a href="/report/list" class="btn btn-sm btn-outline-secondary">返回列表</a>
+                            <button class="btn btn-sm btn-outline-danger" id="cancelBtn" onclick="cancelTask()" style="display:none;">取消任务</button>
+                            <a class="btn btn-sm btn-success fw-bold" id="viewReportBtn" style="display:none;" href="#">查看报告</a>
+                            <button class="btn btn-sm btn-primary" id="retryBtn" onclick="location.href='/compare/config'" style="display:none;">重新创建</button>
+                        </div>
+
+                        <div class="alert alert-danger mt-3 text-start w-100" id="errorPanel" style="display:none;">
+                            <strong>错误信息：</strong>
+                            <p class="mb-0 small" id="errorMsg"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: timeline + logs -->
+            <div class="col-md-8">
+                <!-- Task Info -->
+                <div class="card mb-4" style="box-shadow: var(--shadow-md);">
+                    <div class="card-body px-4 py-3">
+                        <div class="row g-2 small text-muted">
+                            <div class="col-md-3 fw-bold" style="color:var(--color-text);">任务 ID</div>
+                            <div class="col-md-9" id="infoTaskId" style="font-family:var(--font-mono);font-size:.78rem;"></div>
+                            <div class="col-md-3 fw-bold" style="color:var(--color-text);">任务名称</div>
+                            <div class="col-md-9 fw-semibold" id="infoTaskName">-</div>
+                            <div class="col-md-3 fw-bold" style="color:var(--color-text);">开始时间</div>
+                            <div class="col-md-9" id="infoStartTime">-</div>
+                            <div class="col-md-3 fw-bold" style="color:var(--color-text);">耗时</div>
+                            <div class="col-md-9 fw-bold" id="infoElapsed" style="color:var(--color-primary);">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timeline -->
+                <div class="card mb-4" style="box-shadow: var(--shadow-md);">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-bold">执行阶段</h6>
+                    </div>
+                    <div class="card-body px-4 py-3">
+                        <div class="timeline" id="timeline">
+                            <div class="tl-item">
+                                <div class="tl-dot tl-pending" id="tlDot1">1</div>
+                                <div class="tl-content">
+                                    <div class="tl-title">任务初始化</div>
+                                    <div class="tl-detail" id="tlDetail1">连接数据源，获取表列表</div>
+                                </div>
+                            </div>
+                            <div class="tl-item">
+                                <div class="tl-dot tl-pending" id="tlDot2">2</div>
+                                <div class="tl-content">
+                                    <div class="tl-title">结构比对</div>
+                                    <div class="tl-detail" id="tlDetail2">比对表结构、字段、索引</div>
+                                </div>
+                            </div>
+                            <div class="tl-item">
+                                <div class="tl-dot tl-pending" id="tlDot3">3</div>
+                                <div class="tl-content">
+                                    <div class="tl-title">数据比对</div>
+                                    <div class="tl-detail" id="tlDetail3">逐表逐行对比数据内容</div>
+                                </div>
+                            </div>
+                            <div class="tl-item">
+                                <div class="tl-dot tl-pending" id="tlDot4">4</div>
+                                <div class="tl-content">
+                                    <div class="tl-title">生成报告</div>
+                                    <div class="tl-detail" id="tlDetail4">汇总结果，输出 HTML 报告</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Log -->
+                <div class="card" style="box-shadow: var(--shadow-md);">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0 fw-bold">实时日志</h6>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="clearLog()">清空</button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="log-wrap" id="logWrap">
+                            <div class="log-line info"><span class="log-ts">[--:--:--]</span> 等待任务启动...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        var TASK_ID = /*[[${taskId}]]*/ null;
+        var pollTimer = null;
+        var startTimestamp = null;
+        var elapsedTimer = null;
+        var lastStatus = null;
+        var logLines = [];
+        var MAX_LOG = 200;
+        var RING_CIRCUMFERENCE = 427;
+
+        $(function() {
+            if (!TASK_ID) { addLog('error', '无效的任务ID'); return; }
+            $('#infoTaskId').text(TASK_ID);
+            startPoll();
+        });
+
+        function startPoll() { poll(); pollTimer = setInterval(poll, 2000); }
+        function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+        function poll() {
+            $.get('/compare/progress/' + TASK_ID + '/data', function(data) {
+                updateUI(data);
+            }).fail(function() {
+                addLog('error', '获取进度失败，将在 2 秒后重试...');
+            });
+        }
+
+        function updateUI(data) {
+            var status = data.status || 'PENDING';
+            var progress = data.progress || 0;
+            var total = data.totalTables || 0;
+            var done = data.processedTables || 0;
+            var current = data.currentTable;
+
+            updateRing(progress, status);
+            $('#statDone').text(done);
+            $('#statTotal').text(total > 0 ? total : '-');
+
+            if (current) { $('#currentTableName').text(current); $('#currentTableWrap').show(); }
+            else { $('#currentTableWrap').hide(); }
+
+            if (data.taskName) $('#infoTaskName').text(data.taskName);
+            if (data.startTime && !startTimestamp) {
+                startTimestamp = toTs(data.startTime);
+                if (startTimestamp) {
+                    $('#infoStartTime').text(formatDate(new Date(startTimestamp)));
+                    startElapsedTimer();
+                }
+            }
+            // 任务完成后用精确的 endTime 更新耗时
+            if (data.endTime && startTimestamp) {
+                var endTs = toTs(data.endTime);
+                if (endTs) {
+                    $('#infoElapsed').text(formatElapsed(endTs - startTimestamp));
+                }
+            }
+
+            updateStatusBadge(status);
+
+            if (status === 'RUNNING') {
+                $('#runningBar').show().addClass('animating');
+                $('#cancelBtn').show();
+            } else {
+                $('#runningBar').removeClass('animating').hide();
+                $('#cancelBtn').hide();
+            }
+
+            updateTimeline(status, progress, data);
+
+            if (status !== lastStatus) { logStatusChange(status, data); lastStatus = status; }
+            if (current && current !== window._lastTable) {
+                addLog('info', '正在处理表: ' + current + ' (' + done + '/' + total + ')');
+                window._lastTable = current;
+            }
+
+            if (status === 'SUCCESS') {
+                stopPoll(); if (elapsedTimer) clearInterval(elapsedTimer);
+                $('#viewReportBtn').attr('href', '/compare/report/' + TASK_ID).show();
+                addLog('success', '比对任务完成！报告已生成。');
+            } else if (status === 'FAILED') {
+                stopPoll(); if (elapsedTimer) clearInterval(elapsedTimer);
+                $('#retryBtn').show();
+                if (data.errorMessage) { $('#errorMsg').text(data.errorMessage); $('#errorPanel').show(); addLog('error', '错误: ' + data.errorMessage); }
+            } else if (status === 'CANCELLED') {
+                stopPoll(); if (elapsedTimer) clearInterval(elapsedTimer);
+                $('#retryBtn').show(); addLog('warn', '任务已取消');
+            }
+        }
+
+        function updateRing(pct, status) {
+            var offset = RING_CIRCUMFERENCE - (pct / 100) * RING_CIRCUMFERENCE;
+            $('#ringFill').css('stroke-dashoffset', offset);
+            $('#ringPct').text(pct + '%');
+            var subMap = { PENDING: '等待中', RUNNING: '运行中', SUCCESS: '已完成', FAILED: '已失败', CANCELLED: '已取消' };
+            $('#ringSub').text(subMap[status] || status);
+            $('#ringWrap').attr('class', 'progress-ring-wrap mb-3 ring-status-' + status.toLowerCase());
+        }
+
+        function updateStatusBadge(status) {
+            var classMap = { PENDING: 'sp-muted', RUNNING: 'sp-running', SUCCESS: 'sp-success', FAILED: 'sp-danger', CANCELLED: 'sp-muted' };
+            var labelMap = { PENDING: 'PENDING', RUNNING: 'RUNNING', SUCCESS: 'SUCCESS', FAILED: 'FAILED', CANCELLED: 'CANCELLED' };
+            $('#statusBadge').attr('class', 'status-pill ' + (classMap[status] || 'sp-muted'));
+            $('#statusText').text(labelMap[status] || status);
+            $('#pageTitle').text('比对任务进度 - ' + (status === 'RUNNING' ? '执行中' : status === 'SUCCESS' ? '完成' : status === 'FAILED' ? '失败' : status));
+        }
+
+        function updateTimeline(status, progress, data) {
+            var stage = 0;
+            if (status === 'PENDING') { stage = 0; }
+            else if (status === 'RUNNING') {
+                // 单表大表聚合时 progress 可能长时间为 0；有 currentTable 即已进入比对阶段
+                if (data.currentTable) {
+                    if (progress < 90) stage = 3; else stage = 4;
+                } else if (progress < 5) {
+                    stage = 1;
+                } else if (progress < 30) {
+                    stage = 2;
+                } else if (progress < 90) {
+                    stage = 3;
+                } else {
+                    stage = 4;
+                }
+            } else if (status === 'SUCCESS') { stage = 5; }
+            else { stage = -1; }
+
+            for (var i = 1; i <= 4; i++) {
+                var $dot = $('#tlDot' + i);
+                $dot.removeClass('tl-pending tl-active tl-done tl-error');
+                if (status === 'FAILED') {
+                    $dot.addClass(i <= Math.max(1, stage) ? 'tl-error' : 'tl-pending').html(i <= Math.max(1, stage) ? '&#10007;' : i);
+                } else if (i < stage || status === 'SUCCESS') {
+                    $dot.addClass('tl-done').html('&#10003;');
+                } else if (i === stage) {
+                    $dot.addClass('tl-active').html(i);
+                } else {
+                    $dot.addClass('tl-pending').html(i);
+                }
+            }
+        }
+
+        function addLog(type, msg) {
+            var now = new Date();
+            var ts = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+            var line = '<div class="log-line ' + type + '"><span class="log-ts">[' + ts + ']</span> ' + escHtml(msg) + '</div>';
+            logLines.push(line);
+            if (logLines.length > MAX_LOG) logLines.shift();
+            var wrap = document.getElementById('logWrap');
+            wrap.innerHTML = logLines.join('');
+            wrap.scrollTop = wrap.scrollHeight;
+        }
+
+        function clearLog() {
+            logLines = [];
+            $('#logWrap').html('<div class="log-line info"><span class="log-ts">[--:--:--]</span> 日志已清空</div>');
+        }
+
+        function logStatusChange(status, data) {
+            var msgs = { PENDING: '任务已提交，等待执行...', RUNNING: '任务开始执行', SUCCESS: '任务成功完成', FAILED: '任务执行失败', CANCELLED: '任务已被取消' };
+            var typeMap = { PENDING: 'info', RUNNING: 'info', SUCCESS: 'success', FAILED: 'error', CANCELLED: 'warn' };
+            if (msgs[status]) addLog(typeMap[status] || 'info', msgs[status]);
+        }
+
+        function startElapsedTimer() {
+            elapsedTimer = setInterval(function() {
+                var elapsed = Date.now() - startTimestamp;
+                $('#infoElapsed').text(formatElapsed(elapsed));
+            }, 1000);
+        }
+
+        function formatElapsed(ms) {
+            var s = Math.floor(ms / 1000), m = Math.floor(s / 60); s = s % 60;
+            var h = Math.floor(m / 60); m = m % 60;
+            if (h > 0) return h + 'h ' + pad(m) + 'm ' + pad(s) + 's';
+            if (m > 0) return m + 'm ' + pad(s) + 's';
+            return s + 's';
+        }
+
+        function cancelTask() {
+            $.ajax({
+                url: '/compare/cancel/' + TASK_ID,
+                type: 'POST',
+                success: function(res) {
+                    if (res.success) { addLog('warn', '任务取消请求已发送'); $('#cancelBtn').hide(); }
+                    else { addLog('error', '取消失败: ' + res.msg); }
+                }
+            });
+        }
+
+        function pad(n) { return n < 10 ? '0' + n : '' + n; }
+        function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function toTs(v) {
+            if (!v) return null;
+            if (v instanceof Date) return v.getTime();
+            if (typeof v === 'number') return v;
+            if (Array.isArray(v) && v.length >= 6) {
+                return new Date(v[0], v[1]-1, v[2], v[3], v[4], v[5]||0).getTime();
+            }
+            var t = Date.parse(v);
+            if (!isNaN(t)) return t;
+            return null;
+        }
+        function formatDate(d) {
+            return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
+                   pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        }
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>同步任务进度 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <style>
+        .fail-list { max-height: 280px; overflow-y: auto; }
+        .fail-item { display: flex; gap: 8px; align-items: flex-start; padding: .45rem .6rem; border-bottom: 1px solid var(--color-border); font-size: .8rem; margin: 0; }
+        .fail-item:last-child { border-bottom: none; }
+        .fail-item .tbl { font-weight: 600; }
+        .fail-item .err { color: var(--color-danger); word-break: break-all; }
+        .fail-item .phase { font-size: .68rem; background: #e5e7eb; color: #374151; border-radius: 8px; padding: 1px 6px; margin-left: 4px; }
+        .st-pill { font-size: .68rem; border-radius: 8px; padding: 1px 7px; font-weight: 700; }
+        .st-NOT_CLEARED { background: #f3f4f6; color: #4b5563; }
+        .st-CLEAR_FAILED { background: #ffedd5; color: #c2410c; }
+        .st-SYNC_FAILED { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white active" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list?tab=sync">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="app-container">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <a href="/sync/list" class="back-link">&#8592; 返回列表</a>
+            <h4 class="mb-0 fw-bold" id="pageTitle">同步任务进度</h4>
+        </div>
+
+        <div class="running-bar mb-3" id="runningBar" style="display:none;"></div>
+
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card h-100" style="box-shadow: var(--shadow-md);">
+                    <div class="card-body text-center p-4 d-flex flex-column align-items-center">
+                        <div class="progress-ring-wrap mb-3" id="ringWrap">
+                            <svg width="160" height="160" viewBox="0 0 160 160">
+                                <circle class="ring-track" cx="80" cy="80" r="68"/>
+                                <circle class="ring-fill" id="ringFill" cx="80" cy="80" r="68" stroke-dasharray="427" stroke-dashoffset="427"/>
+                            </svg>
+                            <div class="ring-label">
+                                <div class="ring-pct" id="ringPct">0%</div>
+                                <div class="ring-sub" id="ringSub">等待中</div>
+                            </div>
+                        </div>
+                        <span class="status-pill sp-muted mb-3" id="statusBadge"><span id="statusText">PENDING</span></span>
+                        <div class="row g-2 mb-3 w-100">
+                            <div class="col-4"><div class="stat-mini"><div class="num text-success" id="statSuccess">0</div><div class="label">成功</div></div></div>
+                            <div class="col-4"><div class="stat-mini"><div class="num text-danger" id="statFail">0</div><div class="label">待重同步</div></div></div>
+                            <div class="col-4"><div class="stat-mini"><div class="num text-secondary" id="statTotal">-</div><div class="label">总表数</div></div></div>
+                        </div>
+                        <div class="text-muted small mb-3" id="currentTableWrap" style="display:none;">当前：<code id="currentTableName"></code></div>
+                        <div class="action-bar justify-content-center mt-auto flex-wrap gap-2">
+                            <a href="/sync/list" class="btn btn-sm btn-outline-secondary">返回列表</a>
+                            <a href="#" class="btn btn-sm btn-success" id="reportBtn" style="display:none;">查看报告</a>
+                            <button class="btn btn-sm btn-outline-danger" id="cancelBtn" onclick="cancelTask()" style="display:none;">取消任务</button>
+                            <button class="btn btn-sm btn-primary" id="retryBtn" onclick="location.href='/sync/config'" style="display:none;">新建同步</button>
+                            <button class="btn btn-sm btn-warning" id="resyncAllBtn" onclick="resyncFailed(true)" style="display:none;">重新提取并一键同步</button>
+                        </div>
+                        <div class="alert alert-danger mt-3 text-start w-100" id="errorPanel" style="display:none;">
+                            <strong>摘要：</strong><p class="mb-0 small" id="errorMsg"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card mb-4" style="box-shadow: var(--shadow-md);">
+                    <div class="card-body px-4 py-3 small">
+                        <div class="row g-2">
+                            <div class="col-md-3 fw-bold">任务 ID</div><div class="col-md-9" id="infoTaskId"></div>
+                            <div class="col-md-3 fw-bold">任务名称</div><div class="col-md-9 fw-semibold" id="infoTaskName">-</div>
+                            <div class="col-md-3 fw-bold">同步模式</div><div class="col-md-9" id="infoSyncMode">-</div>
+                            <div class="col-md-3 fw-bold">本次连接数</div><div class="col-md-9" id="infoParallel">-</div>
+                            <div class="col-md-3 fw-bold">开始时间</div><div class="col-md-9" id="infoStartTime">-</div>
+                            <div class="col-md-3 fw-bold">耗时</div><div class="col-md-9 fw-bold text-primary" id="infoElapsed">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4" id="failedPanel" style="display:none;box-shadow: var(--shadow-md);">
+                    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <h6 class="mb-0 fw-bold text-danger">待重同步表（<span id="failCountLabel">0</span>）</h6>
+                            <div class="small text-muted mt-1" id="failStatusSummary"></div>
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleFailAll(true)">全选</button>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleFailAll(false)">全不选</button>
+                            <button class="btn btn-sm btn-warning" type="button" onclick="resyncFailed(false)">重同步所选</button>
+                            <button class="btn btn-sm btn-danger" type="button" onclick="resyncFailed(true)">重新提取并一键同步</button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="fail-list" id="failList"></div>
+                    </div>
+                </div>
+
+                <div class="card" style="box-shadow: var(--shadow-md);">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0 fw-bold">实时日志</h6>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="$('#logWrap').empty()">清空</button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="log-wrap" id="logWrap">
+                            <div class="log-line info"><span class="log-ts">[--:--:--]</span> 等待任务启动...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        var TASK_ID = /*[[${taskId}]]*/ null;
+        var pollTimer = null, startTimestamp = null, elapsedTimer = null, lastStatus = null;
+        var lastLogSeq = 0, logInitialized = false, failedRendered = false;
+        var RING = 427;
+
+        $(function() {
+            if (!TASK_ID) return;
+            $('#infoTaskId').text(TASK_ID);
+            poll(); pollTimer = setInterval(poll, 2000);
+        });
+
+        function poll() {
+            $.get('/sync/progress/' + TASK_ID + '/data', { sinceLogSeq: lastLogSeq }, function(data) {
+                appendServerLogs(data);
+                updateUI(data);
+            });
+        }
+
+        function appendServerLogs(data) {
+            var logs = data.logs;
+            if (!logs || !logs.length) return;
+            if (!logInitialized) {
+                $('#logWrap').empty();
+                logInitialized = true;
+            }
+            logs.forEach(function(l) {
+                addLog(l.type || 'info', l.msg, l.ts);
+                if (l.seq > lastLogSeq) lastLogSeq = l.seq;
+            });
+        }
+
+        function updateUI(data) {
+            var status = data.status || 'PENDING';
+            var pct = data.progress || 0;
+            $('#ringFill').css('stroke-dashoffset', RING - (pct / 100) * RING);
+            $('#ringPct').text(pct + '%');
+            var sub = { PENDING:'等待中', RUNNING:'同步中', SUCCESS:'已完成', PARTIAL:'部分成功', FAILED:'已失败', CANCELLED:'已取消' };
+            $('#ringSub').text(sub[status] || status);
+            $('#statSuccess').text(data.successTables != null ? data.successTables : (data.processedTables || 0));
+            $('#statFail').text(data.failedTablesCount != null ? data.failedTablesCount : 0);
+            $('#statTotal').text(data.totalTables > 0 ? data.totalTables : '-');
+            if (data.currentTable) { $('#currentTableName').text(data.currentTable); $('#currentTableWrap').show(); }
+            if (data.taskName) $('#infoTaskName').text(data.taskName);
+            if (data.syncMode) {
+                var modeMap = {
+                    DATA_TRANSFER: '数据传输',
+                    DATA_SYNC: '差异同步',
+                    FULL_DML: '全量（DML）', FULL: '全量（DML）', FULL_DDL: '全量（DDL）',
+                    PK_UPSERT: '增量同步', INCREMENTAL: '仅插入', DATAX: 'DataX 工具同步'
+                };
+                $('#infoSyncMode').text(modeMap[data.syncMode] || data.syncMode);
+                if (data.parallelThreads) $('#infoParallel').text(data.parallelThreads + '（多表并发，池上限≈此值）');
+            }
+            if (data.startTime && !startTimestamp) {
+                startTimestamp = new Date(data.startTime).getTime();
+                $('#infoStartTime').text(data.startTime.replace('T', ' ').substring(0, 19));
+                elapsedTimer = setInterval(updateElapsed, 1000);
+            }
+            if (data.endTime && startTimestamp) {
+                $('#infoElapsed').text(formatElapsed(new Date(data.endTime).getTime() - startTimestamp));
+                if (elapsedTimer) clearInterval(elapsedTimer);
+            }
+            var sc = { PENDING:'sp-muted', RUNNING:'sp-running', SUCCESS:'sp-success', PARTIAL:'sp-warning', FAILED:'sp-danger', CANCELLED:'sp-muted' };
+            $('#statusBadge').attr('class', 'status-pill mb-3 ' + (sc[status]||'sp-muted'));
+            $('#statusText').text(status);
+            $('#runningBar').toggle(status === 'RUNNING').toggleClass('animating', status === 'RUNNING');
+            $('#cancelBtn').toggle(status === 'RUNNING');
+            if (status !== lastStatus) {
+                var t = status === 'SUCCESS' ? 'success' : (status === 'FAILED' || status === 'PARTIAL') ? 'error' : 'info';
+                if (!logInitialized) addLog(t, '状态: ' + (sub[status] || status));
+                lastStatus = status;
+            }
+
+            var ended = status === 'SUCCESS' || status === 'FAILED' || status === 'PARTIAL' || status === 'CANCELLED';
+            if (ended) {
+                stopPoll();
+                $('#retryBtn').show();
+                $('#reportBtn').attr('href', '/sync/report/' + TASK_ID).show();
+                if (data.errorMessage && status !== 'SUCCESS') {
+                    $('#errorMsg').text(data.errorMessage);
+                    $('#errorPanel').show();
+                }
+                renderFailedTables(data.failedTables || []);
+            }
+        }
+
+        function statusLabelOf(item) {
+            if (item.statusLabel) return item.statusLabel;
+            var map = { NOT_CLEARED: '未同步（未清理）', CLEAR_FAILED: '清理失败', SYNC_FAILED: '同步失败' };
+            if (item.status && map[item.status]) return map[item.status];
+            // 兼容旧数据：按 phase 推断
+            if (item.phase === 'clear' || item.phase === 'ddl') return '清理失败';
+            if (item.phase === 'meta' || item.phase === 'connect' || item.phase === 'prepare') return '未同步（未清理）';
+            return '同步失败';
+        }
+
+        function statusCodeOf(item) {
+            if (item.status) return item.status;
+            var label = statusLabelOf(item);
+            if (label.indexOf('未清理') >= 0) return 'NOT_CLEARED';
+            if (label.indexOf('清理失败') >= 0) return 'CLEAR_FAILED';
+            return 'SYNC_FAILED';
+        }
+
+        function renderFailedTables(list) {
+            if (!list || !list.length) {
+                $('#failedPanel').hide();
+                $('#resyncAllBtn').hide();
+                return;
+            }
+            var cNot = 0, cClear = 0, cSync = 0;
+            list.forEach(function(item) {
+                var code = statusCodeOf(item);
+                if (code === 'NOT_CLEARED') cNot++;
+                else if (code === 'CLEAR_FAILED') cClear++;
+                else cSync++;
+            });
+            $('#failCountLabel').text(list.length);
+            $('#failStatusSummary').text('未同步（未清理） ' + cNot + ' · 清理失败 ' + cClear + ' · 同步失败 ' + cSync);
+            var html = '';
+            list.forEach(function(item) {
+                var table = item.table || '';
+                var display = item.displayName || table;
+                if ((!item.displayName || item.displayName.indexOf('.') < 0) && table.indexOf('::') >= 0) {
+                    display = table.replace('::', '.');
+                }
+                var idx = item.tableIndex > 0 ? ('#' + item.tableIndex + ' ') : '';
+                var catHint = '';
+                if (item.srcCatalog || item.tgtCatalog) {
+                    catHint = ' <span class="phase">' + escHtml((item.srcCatalog || '?') + ' → ' + (item.tgtCatalog || '?')) + '</span>';
+                }
+                var phaseMap = { clear: '清表', insert: '写入', ddl: 'DDL切换', swap: '临时表切换', connect: '连接', meta: '元数据', prepare: '准备', error: '异常', done: '完成' };
+                var phase = phaseMap[item.phase] || item.phase || '-';
+                var st = statusCodeOf(item);
+                var stLabel = statusLabelOf(item);
+                html += '<label class="fail-item">' +
+                    '<input type="checkbox" class="fail-chk" value="' + escHtml(table) + '" checked>' +
+                    '<div class="flex-grow-1">' +
+                    '<div><span class="tbl">' + escHtml(idx + display) + '</span> ' +
+                    '<span class="st-pill st-' + st + '">' + escHtml(stLabel) + '</span> ' +
+                    '<span class="phase">' + escHtml(phase) + '</span>' + catHint + '</div>' +
+                    '<div class="err">' + escHtml(item.error || '') + '</div>' +
+                    '</div></label>';
+            });
+            $('#failList').html(html);
+            $('#failedPanel').show();
+            $('#resyncAllBtn').show();
+            if (!failedRendered) {
+                addLog('error', '共 ' + list.length + ' 张表待重同步（未清理/清理失败/同步失败），可一键重新提取并同步');
+                failedRendered = true;
+            }
+        }
+
+        function toggleFailAll(check) {
+            $('.fail-chk').prop('checked', check);
+        }
+
+        function resyncFailed(all) {
+            var tables = [];
+            if (all) {
+                $('.fail-chk').each(function() { tables.push($(this).val()); });
+            } else {
+                $('.fail-chk:checked').each(function() { tables.push($(this).val()); });
+            }
+            if (!tables.length) { addLog('warn', '请至少选择一张表'); return; }
+            AppConfirm.open({
+                title: '提取失败表并新建任务',
+                html: '将提取所选 <strong>' + tables.length + '</strong> 张表，创建<strong>待确认</strong>同步任务'
+                    + '（不会立即执行，需在确认页核对后手动启动）。',
+                confirmText: '去确认页',
+                cancelText: '取消',
+                danger: false,
+                onConfirm: function() {
+                    addLog('info', '正在创建待确认任务（' + tables.length + ' 张）…');
+                    $.ajax({
+                        url: '/sync/resync-failed/' + TASK_ID,
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ tables: tables }),
+                        success: function(res) {
+                            if (res.success) {
+                                addLog('success', res.msg || '已创建草稿');
+                                var url = res.confirmUrl || ('/sync/confirm/' + res.taskId);
+                                setTimeout(function() { location.href = url; }, 400);
+                            } else {
+                                addLog('error', res.msg || '提交失败');
+                            }
+                        },
+                        error: function() { addLog('error', '请求失败'); }
+                    });
+                }
+            });
+        }
+
+        function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+        function updateElapsed() {
+            if (startTimestamp) $('#infoElapsed').text(formatElapsed(Date.now() - startTimestamp));
+        }
+        function formatElapsed(ms) {
+            var s = Math.floor(ms / 1000), m = Math.floor(s / 60); s %= 60;
+            return m > 0 ? m + 'm ' + s + 's' : s + 's';
+        }
+        function addLog(type, msg, ts) {
+            if (!ts) ts = new Date().toTimeString().substring(0, 8);
+            $('#logWrap').append('<div class="log-line ' + type + '"><span class="log-ts">[' + ts + ']</span> ' + escHtml(msg) + '</div>');
+            var el = document.getElementById('logWrap'); el.scrollTop = el.scrollHeight;
+        }
+        function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function cancelTask() {
+            $.post('/sync/cancel/' + TASK_ID, {}, function(res) {
+                if (res.success) addLog('warn', '已请求取消');
+            });
+        }
+    </script>
+    <script th:src="@{/js/confirm-dialog.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

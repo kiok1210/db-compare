@@ -1,0 +1,29 @@
+---
+description: Require unit tests for new APIs and run full Maven regression after code changes
+alwaysApply: true
+---
+
+# 回归测试（强制）
+
+## 新增/变更接口时
+
+- 同步补单测：Controller（`@WebMvcTest` + MockMvc）和/或 Service（Mockito）
+- 覆盖成功路径、校验失败、空数据、边界参数；同步报告类改动需断言 HTML 关键控件/路径
+- 测试命名：`method_condition_expectation`；不依赖真实业务库（可用 H2 mem 或纯 mock）
+
+## 每次改动后
+
+在完成代码修改并准备回复用户前，必须执行完整回归：
+
+```bash
+mvn test
+```
+
+- 不得用 `maven.test.skip=true` / `-DskipTests` 代替回归（打包可另说）
+- 若测试编译失败，先修测试再继续功能
+- 若出现与本次改动无关的失败，一并修复或明确记录阻塞原因
+- 回复中简要说明：`mvn test` 结果（通过数/失败点）
+
+## 发版
+
+含测试基础设施或测试覆盖率显著变化时，在 `version-changelog.json` 的 `changes` 中写明（如「补充同步报告/重同步 API 单测」）。

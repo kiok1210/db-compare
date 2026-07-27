@@ -1,0 +1,50 @@
+{
+  "job": {
+    "setting": {
+      "speed": {
+        "channel": {{CHANNEL}},
+        "byte": -1
+      },
+      "errorLimit": {
+        "record": 0,
+        "percentage": 0.02
+      }
+    },
+    "content": [
+      {
+        "reader": {
+          "name": "mysqlreader",
+          "parameter": {
+            "username": "{{SRC_USER}}",
+            "password": "{{SRC_PASSWORD}}",
+            "column": ["*"],
+            "splitPk": "id",
+            "connection": [
+              {
+                "table": ["gcoll_tasks_func"],
+                "jdbcUrl": ["{{SRC_JDBC}}"]
+              }
+            ]
+          }
+        },
+        "writer": {
+          "name": "mysqlwriter",
+          "parameter": {
+            "writeMode": "{{WRITE_MODE}}",
+            "username": "{{TGT_USER}}",
+            "password": "{{TGT_PASSWORD}}",
+            "column": ["*"],
+            "batchSize": 2048,
+            {{PRE_SQL_BLOCK}}
+            "connection": [
+              {
+                "jdbcUrl": "{{TGT_JDBC}}",
+                "table": ["gcoll_tasks_func"]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

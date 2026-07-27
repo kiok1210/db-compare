@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="'比对报告 - ' + ${task.taskName}">比对报告</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <style>
+        html, body { height: 100%; margin: 0; overflow: hidden; }
+        .report-frame-wrap { height: calc(100vh - 56px); }
+        .report-frame-wrap iframe { width: 100%; height: 100%; border: 0; display: block; background: #f1f5f9; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white active" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+    <div class="report-frame-wrap">
+        <iframe id="compareReportFrame" th:src="${reportUrl}" title="比对报告内容"></iframe>
+    </div>
+    <script>
+        /* 报告在 iframe 内：若跳转到站内其他页（如同步确认），提升到顶层，避免“像没跳转” */
+        (function () {
+            var frame = document.getElementById('compareReportFrame');
+            if (!frame) return;
+            frame.addEventListener('load', function () {
+                try {
+                    var loc = frame.contentWindow.location;
+                    var href = loc.href || '';
+                    var path = loc.pathname || '';
+                    if (!href || href === 'about:blank') return;
+                    if (path.indexOf('/reports/') === 0) return;
+                    if (path.indexOf('/compare/report/') === 0) return;
+                    window.location.href = href;
+                } catch (e) { /* cross-origin ignore */ }
+            });
+        })();
+    </script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

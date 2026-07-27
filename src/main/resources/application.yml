@@ -1,0 +1,73 @@
+# Spring Boot 应用配置
+spring:
+  application:
+    name: db-compare
+
+  # 任务库（比对/同步任务、AppMeta、参数等）— 可随程序升级；勿与数据源库混用
+  datasource:
+    url: jdbc:h2:file:./data/dbcompare;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  # JPA配置（主库）
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # 关闭 Boot 默认仓库扫描（否则会与 AppJpaConfig / DatasourceStoreJpaConfig 重复注册）
+  data:
+    jpa:
+      repositories:
+        enabled: false
+
+  # Thymeleaf配置
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    encoding: UTF-8
+    cache: false  # 开发时关闭缓存
+
+# 服务器配置
+server:
+  port: 8080
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        same-site: lax
+
+# 日志配置
+logging:
+  level:
+    com.gcoll.dbcompare: INFO
+  file:
+    name: logs/db-compare.log
+
+# 应用自定义配置
+db-compare:
+  # 登录认证（默认开启；未登录禁止访问任何页面/API/报告）
+  security:
+    enabled: true
+    username: admin
+    # 复杂密码：≥12 位，含大小写/数字/特殊字符；部署后请立即修改
+    password: "DbC0mpare#2026!Xk9$mQ7"
+  # 数据源配置独立库（./data/datasource.mv.db）— 内网请保留，同步程序时不要覆盖
+  datasource-store:
+    url: jdbc:h2:file:./data/datasource;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  # 数据源密码加密密钥（生产环境请修改）
+  encryption:
+    key: change-me-in-production
+  # 数据源 SQL 导出目录（全量 latest + 变更增量）
+  datasource-scripts:
+    dir: ./scripts/datasource

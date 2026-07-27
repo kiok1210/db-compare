@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>确认同步任务 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <script src="/js/schema-mapping.js?v=1.2.38"></script>
+    <style>
+        .tbl-box { max-height: 380px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 8px; }
+        .mode-tag { font-size: .72rem; font-weight: 700; background: #eef2ff; color: #4338ca; border-radius: 6px; padding: 2px 8px; }
+        .warn-banner { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 8px; padding: .75rem 1rem; font-size: .86rem; }
+        .schema-selector-compare { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: .6rem .8rem; }
+        .schema-checkbox-list { max-height: 140px; overflow-y: auto; margin-top: 4px; }
+        .schema-checkbox-list label { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: .8rem; cursor: pointer; margin: 0; }
+        .schema-select-actions { display: flex; gap: 8px; margin-bottom: 4px; }
+        .schema-select-actions .btn-schema-sm { font-size: .72rem; padding: 1px 10px; border-radius: 12px; background: none; border: 1px solid var(--color-border); cursor: pointer; color: var(--color-text-muted); }
+        .table-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: .82rem; cursor: pointer; border-radius: 4px; margin: 0; }
+        .table-item:hover { background: var(--color-primary-bg); }
+        .table-item .schema-tag { font-size: .68rem; color: var(--color-text-muted); background: #f1f5f9; padding: 1px 6px; border-radius: 8px; }
+        .prefix-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+        .prefix-row input { max-width: 160px; }
+        .mode-pick { border: 2px solid var(--color-border); border-radius: 8px; padding: .65rem .75rem; cursor: pointer; height: 100%; transition: .15s; background: #fff; }
+        .mode-pick:hover { border-color: #a5b4fc; }
+        .mode-pick.selected { border-color: #4f46e5; background: #eef2ff; }
+        .mode-pick .mt { font-weight: 700; font-size: .86rem; margin-bottom: 2px; }
+        .mode-pick .md { font-size: .72rem; color: var(--color-text-muted); margin: 0; line-height: 1.35; }
+        .mode-hint { font-size: .75rem; color: #64748b; margin-top: .35rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white active" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="app-container">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <a href="/sync/list" class="back-link">&#8592; 返回列表</a>
+            <h4 class="mb-0 fw-bold">确认 / 编辑同步草稿</h4>
+        </div>
+
+        <div class="warn-banner mb-3">
+            任务已创建但<strong>尚未运行</strong>。可勾选表、调整库名范围与映射后再「保存」或「开始同步」。
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-5">
+                <div class="card mb-3" style="box-shadow: var(--shadow-md);">
+                    <div class="card-body">
+                        <label class="form-label">任务名称</label>
+                        <input type="text" class="form-control mb-3" id="taskName">
+                        <div class="mb-2" style="font-size:.86rem;">
+                            <span class="text-muted">任务 ID</span> #<span id="taskIdLabel"></span>
+                            &nbsp;<span class="status-pill sp-muted" id="statusLabel">PENDING</span>
+                            &nbsp;<span class="mode-tag" id="modeLabel">FULL_DML</span>
+                        </div>
+                        <div class="mb-2 small text-muted" id="dsSummary">数据源加载中…</div>
+
+                        <div class="section-title mb-2" style="font-size:.9rem;font-weight:700;">同步方式</div>
+                        <input type="hidden" id="syncMode" value="FULL_DML">
+                        <div class="row g-2 mb-2" id="syncModeCards">
+                            <div class="col-6">
+                                <div class="mode-pick" data-mode="DATA_SYNC" role="button" tabindex="0" onclick="selectConfirmMode(this)">
+                                    <div class="mt">差异同步</div>
+                                    <p class="md">按主键比对：新增 INSERT、变更 UPDATE、目标多余 DELETE（类 Navicat 数据同步）</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mode-pick" data-mode="PK_UPSERT" role="button" tabindex="0" onclick="selectConfirmMode(this)">
+                                    <div class="mt">增量同步</div>
+                                    <p class="md">不清空表；主键存在则 UPDATE，否则 INSERT（不删目标多余行）</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mode-pick" data-mode="DATA_TRANSFER" role="button" tabindex="0" onclick="selectConfirmMode(this)">
+                                    <div class="mt">数据传输</div>
+                                    <p class="md">清空目标表后全量写入（类 Navicat 数据传输）</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mode-pick selected" data-mode="FULL_DML" role="button" tabindex="0" onclick="selectConfirmMode(this)">
+                                    <div class="mt">DML 全量</div>
+                                    <p class="md">分批 DELETE 后 INSERT；仅需 DML 权限</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mode-pick" data-mode="FULL_DDL" role="button" tabindex="0" onclick="selectConfirmMode(this)">
+                                    <div class="mt">DDL 全量</div>
+                                    <p class="md">TRUNCATE / CREATE LIKE，需 DDL 权限</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mode-pick" data-mode="INCREMENTAL" role="button" tabindex="0" onclick="selectConfirmMode(this)">
+                                    <div class="mt">仅插入</div>
+                                    <p class="md">不清空；INSERT IGNORE，冲突跳过、不更新</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mode-pick" data-mode="DATAX" role="button" tabindex="0" onclick="selectConfirmMode(this)">
+                                    <div class="mt">DataX 工具同步</div>
+                                    <p class="md">调用本机 DataX 全量同步（TRUNCATE+多通道）；大表推荐，需配置安装目录</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mode-hint mb-3" id="syncModeHint">请按业务选择同步方式；差异不大推荐「差异同步」或「增量同步」。</div>
+
+                        <div class="section-title mb-2" style="font-size:.9rem;font-weight:700;">源库范围（按待同步表自动匹配）</div>
+                        <div class="schema-selector-compare mb-3" id="sourceSchemaSelector">
+                            <div class="schema-select-actions">
+                                <button class="btn-schema-sm" type="button" onclick="matchSchemasFromTables()">按表匹配</button>
+                                <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('source', true)">全选业务库</button>
+                                <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('source', false)">全不选</button>
+                            </div>
+                            <div class="schema-checkbox-list" id="sourceSchemaCheckList"><div class="text-muted small">加载中…</div></div>
+                        </div>
+
+                        <div class="section-title mb-2" style="font-size:.9rem;font-weight:700;">目标库范围</div>
+                        <div class="schema-selector-compare mb-3" id="targetSchemaSelector">
+                            <div class="schema-select-actions">
+                                <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('target', true)">全选业务库</button>
+                                <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('target', false)">全不选</button>
+                            </div>
+                            <div class="schema-checkbox-list" id="targetSchemaCheckList"><div class="text-muted small">加载中…</div></div>
+                        </div>
+
+                        <div class="card border-0 bg-light p-3 rounded-3 mb-3" id="schemaMappingPanel" style="display:none;">
+                            <div class="section-title mb-2" style="font-size:.88rem;">库名映射 / 前缀对应 <small class="text-muted">(源 → 目标)</small></div>
+                            <div id="schemaMappingRows"></div>
+                            <div class="prefix-row">
+                                <span class="small text-muted">目标前缀快捷：</span>
+                                <input type="text" class="form-control form-control-sm" id="tgtPrefix" placeholder="如 prd_">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyTargetPrefix()">按前缀自动映射</button>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label">本次连接数</label>
+                                <input type="number" class="form-control" id="parallelThreads" min="1" max="20" value="1">
+                                <div class="form-text" style="font-size:.72rem;">默认=同步表数，最大 20；仅影响本任务</div>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">批大小</label>
+                                <input type="number" class="form-control" id="batchSize" min="1000" max="50000" step="1000" value="20000">
+                            </div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="button" class="btn btn-outline-primary" id="saveBtn" onclick="saveDraft()">保存草稿</button>
+                            <button type="button" class="btn btn-primary" id="startBtn" onclick="saveAndStart()">开始同步</button>
+                            <a href="/sync/list" class="btn btn-outline-secondary">稍后处理</a>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteDraft()">删除草稿</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-7">
+                <div class="card" style="box-shadow: var(--shadow-md);">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <span class="fw-bold">待同步表（可勾选）</span>
+                        <div class="d-flex gap-2 align-items-center flex-wrap">
+                            <input type="text" class="form-control form-control-sm" id="tableSearch" placeholder="搜索…" style="width:140px;" oninput="renderTableList()">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAllTables(true)">全选</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAllTables(false)">全不选</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="loadSourceTables(true)">刷新库表</button>
+                            <small class="text-muted">已选 <b id="selectedTableCount">0</b></small>
+                        </div>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="tbl-box" id="tableListWrap">
+                            <div class="text-muted small p-3">加载中…</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        var taskId = /*[[${taskId}]]*/ 0;
+        var task = /*[[${task}]]*/ {};
+        var allDataSources = /*[[${dataSources}]]*/ [];
+        var seedTables = /*[[${tables}]]*/ [];
+        var selectedTables = (seedTables || []).slice();
+        var loadedTables = [];
+        var allSrcSchemas = [], allTgtSchemas = [];
+        var schemasLoaded = { source: false, target: false };
+        var parallelManual = false;
+
+        function defaultConnCount() {
+            return Math.max(1, Math.min(20, selectedTables.length || 1));
+        }
+        function syncConnDefault() {
+            if (!parallelManual) {
+                $('#parallelThreads').val(defaultConnCount());
+            }
+        }
+
+        $(function() {
+            if (!task || !task.id) { showToast('任务不存在', 'danger'); return; }
+            $('#taskIdLabel').text(task.id);
+            $('#statusLabel').text(task.status || 'PENDING');
+            $('#taskName').val(task.taskName || '');
+            applyConfirmMode(task.syncMode || 'FULL_DML');
+            $('#batchSize').val(task.batchSize != null ? task.batchSize : 20000);
+            // 连接数默认=同步表数（≤20）；已保存且与默认不同视为本次临时调整
+            var defConn = defaultConnCount();
+            if (task.parallelThreads != null && task.parallelThreads >= 1
+                    && task.parallelThreads !== defConn) {
+                parallelManual = true;
+                $('#parallelThreads').val(Math.min(20, Math.max(1, task.parallelThreads)));
+            } else {
+                parallelManual = false;
+                $('#parallelThreads').val(defConn);
+            }
+            $('#parallelThreads').on('input change', function() { parallelManual = true; });
+            if (task.batchSize == null) {
+                $.getJSON('/settings/api').done(function(res) {
+                    if (!res || !res.settings) return;
+                    $('#batchSize').val(res.settings.syncBatchSize);
+                });
+            }
+            var srcDs = findDs(task.sourceDataSourceId);
+            var tgtDs = findDs(task.targetDataSourceId);
+            $('#dsSummary').html('源：<strong>' + escHtml(srcDs ? srcDs.name : task.sourceDataSourceId) + '</strong> → 目标：<strong>' +
+                escHtml(tgtDs ? tgtDs.name : task.targetDataSourceId) + '</strong>');
+            loadedTables = (seedTables || []).map(function(n) { return { name: n }; });
+            renderTableList();
+            // 先按待同步表本地渲染库范围（不阻塞远程 /viewer/schemas），避免一直「加载中」
+            bootstrapSchemasFromSeed();
+            // 后台补充完整库名列表（超时则忽略，保留本地结果）
+            loadSchemasRemote(task.sourceDataSourceId, 'source');
+            loadSchemasRemote(task.targetDataSourceId, 'target');
+        });
+
+        function schemasFromSeed() {
+            if (window.SchemaMappingUi && SchemaMappingUi.schemasFromTableKeys) {
+                return SchemaMappingUi.schemasFromTableKeys(seedTables) || [];
+            }
+            var seen = {}, out = [];
+            (seedTables || []).forEach(function(t) {
+                var name = String(t || '');
+                if (name.indexOf('::') < 0) return;
+                var s = name.split('::')[0].trim();
+                if (s && !seen[s]) { seen[s] = true; out.push(s); }
+            });
+            return out;
+        }
+
+        function matchTargetsLocal(srcSchemas) {
+            if (window.SchemaMappingUi && SchemaMappingUi.matchTargetSchemas) {
+                return SchemaMappingUi.matchTargetSchemas(srcSchemas, allTgtSchemas, task.schemaMapping || '') || [];
+            }
+            var map = {};
+            String(task.schemaMapping || '').split(',').forEach(function(pair) {
+                var p = pair.split(':');
+                if (p.length === 2) map[p[0].trim()] = p[1].trim();
+            });
+            var out = [], seen = {};
+            (srcSchemas || []).forEach(function(src) {
+                var t = map[src];
+                if (!t) {
+                    var guess = 'prd_' + src;
+                    if (allTgtSchemas.indexOf(guess) >= 0) t = guess;
+                    else if (parseCsv(task.targetSchema).indexOf(guess) >= 0) t = guess;
+                    else if (!allTgtSchemas.length) t = guess; // 远程列表未到前，按常见前缀先展示
+                }
+                if (t && !seen[t]) { seen[t] = true; out.push(t); }
+            });
+            if (!out.length) return parseCsv(task.targetSchema);
+            return out;
+        }
+
+        /** 立即用草稿表/已存库范围渲染勾选，不依赖远程库名接口 */
+        function bootstrapSchemasFromSeed() {
+            var fromTables = schemasFromSeed();
+            var srcNames = fromTables.length ? fromTables.slice() : parseCsv(task.sourceSchema);
+            allSrcSchemas = srcNames.slice();
+            renderSchemaCheckList('source', srcNames, srcNames);
+
+            var tgtNames = matchTargetsLocal(srcNames);
+            if (!tgtNames.length) tgtNames = parseCsv(task.targetSchema);
+            allTgtSchemas = tgtNames.slice();
+            renderSchemaCheckList('target', tgtNames, tgtNames);
+
+            schemasLoaded.source = true;
+            schemasLoaded.target = true;
+            renderSchemaMapping();
+            if (!srcNames.length) {
+                $('#sourceSchemaCheckList').html('<div class="text-muted small">暂无源库（待同步表需含 库名::表名）</div>');
+            }
+            if (!tgtNames.length) {
+                $('#targetSchemaCheckList').html('<div class="text-muted small">暂无目标库，加载完整列表后可再匹配</div>');
+            }
+        }
+
+        function renderSchemaCheckList(side, allNames, checkedNames) {
+            var list = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            var checkedSet = {};
+            (checkedNames || []).forEach(function(n) { checkedSet[n] = true; });
+            if (!allNames || !allNames.length) {
+                $(list).html('<div class="text-muted small">暂无库名</div>');
+                return;
+            }
+            var html = '';
+            allNames.forEach(function(name) {
+                html += '<label><input type="checkbox" value="' + escHtml(name) + '"' +
+                    (checkedSet[name] ? ' checked' : '') +
+                    ' onchange="onSchemaChange()"><span>' + escHtml(name) + '</span></label>';
+            });
+            $(list).html(html);
+        }
+
+        function mergeSchemaNames(existing, incoming) {
+            var seen = {}, out = [];
+            (existing || []).concat(incoming || []).forEach(function(n) {
+                if (!n || seen[n]) return;
+                seen[n] = true;
+                out.push(n);
+            });
+            return out;
+        }
+
+        function loadSchemasRemote(dsId, side) {
+            if (!dsId) return;
+            var list = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            var req = $.ajax({
+                url: '/viewer/schemas/' + dsId,
+                method: 'GET',
+                timeout: 12000
+            });
+            req.done(function(res) {
+                if (!res || !res.success || !res.schemas || !res.schemas.length) return;
+                var names = res.schemas.map(function(s) { return s.name; }).filter(Boolean);
+                if (side === 'source') {
+                    var checked = $('#sourceSchemaCheckList input:checked').map(function() { return $(this).val(); }).get();
+                    if (!checked.length) checked = schemasFromSeed();
+                    allSrcSchemas = mergeSchemaNames(allSrcSchemas, names);
+                    renderSchemaCheckList('source', allSrcSchemas, checked);
+                } else {
+                    var srcChecked = $('#sourceSchemaCheckList input:checked').map(function() { return $(this).val(); }).get();
+                    var matched = matchTargetsLocal(srcChecked);
+                    var checkedT = $('#targetSchemaCheckList input:checked').map(function() { return $(this).val(); }).get();
+                    if (!checkedT.length) checkedT = matched;
+                    allTgtSchemas = mergeSchemaNames(allTgtSchemas, names);
+                    // 匹配结果若在完整列表中，确保勾选
+                    matched.forEach(function(t) {
+                        if (checkedT.indexOf(t) < 0 && allTgtSchemas.indexOf(t) >= 0) checkedT.push(t);
+                    });
+                    renderSchemaCheckList('target', allTgtSchemas, checkedT);
+                }
+                renderSchemaMapping();
+            }).fail(function(xhr, status) {
+                // 超时/失败不影响已用草稿渲染的勾选
+                if (status === 'timeout') {
+                    var tip = $('<div class="text-muted small mt-1">完整库名列表加载超时（已按待同步表匹配）</div>');
+                    if ($(list + ' .schema-timeout-tip').length === 0) {
+                        tip.addClass('schema-timeout-tip');
+                        $(list).append(tip);
+                    }
+                }
+            });
+        }
+
+        function loadSchemas(dsId, side, preselectCsv) {
+            // 兼容旧调用：改为远程补充
+            loadSchemasRemote(dsId, side);
+        }
+
+        function findDs(id) {
+            if (!id || !allDataSources) return null;
+            for (var i = 0; i < allDataSources.length; i++) {
+                if (allDataSources[i].id == id) return allDataSources[i];
+            }
+            return null;
+        }
+
+        function syncModeDisplayName(mode) {
+            var map = {
+                DATA_SYNC: '差异同步',
+                PK_UPSERT: '增量同步',
+                DATA_TRANSFER: '数据传输',
+                FULL_DML: 'DML 全量',
+                FULL: 'DML 全量',
+                FULL_DDL: 'DDL 全量',
+                INCREMENTAL: '仅插入',
+                DATAX: 'DataX 工具同步'
+            };
+            return map[mode] || mode || 'DML 全量';
+        }
+
+        function syncModeHintText(mode) {
+            var map = {
+                DATA_SYNC: '差异同步：按主键比对后 INSERT/UPDATE/DELETE，表须有主键；目标需 INSERT+UPDATE+DELETE。',
+                PK_UPSERT: '增量同步：不清空；主键存在则更新、否则插入（不删除目标多余行）。',
+                DATA_TRANSFER: '数据传输：先清空目标表再全量写入。',
+                FULL_DML: 'DML 全量：分批 DELETE 后 INSERT。',
+                FULL_DDL: 'DDL 全量：TRUNCATE / CREATE LIKE，需 DDL 权限。',
+                INCREMENTAL: '仅插入：INSERT IGNORE，冲突跳过、不更新已有行。',
+                DATAX: 'DataX：清表可选「DataX DELETE/TRUNCATE」（preSql，通常快于应用侧分批 DELETE）；或「不清空+replace」。'
+            };
+            return map[mode] || '请选择同步方式。';
+        }
+
+        function selectConfirmMode(el) {
+            var mode = $(el).data('mode') || 'FULL_DML';
+            applyConfirmMode(mode);
+        }
+
+        function applyConfirmMode(mode) {
+            var m = mode || 'FULL_DML';
+            $('#syncMode').val(m);
+            $('#modeLabel').text(syncModeDisplayName(m));
+            $('#syncModeHint').text(syncModeHintText(m));
+            $('#syncModeCards .mode-pick').removeClass('selected');
+            var $card = $('#syncModeCards .mode-pick[data-mode="' + m + '"]');
+            if ($card.length) $card.addClass('selected');
+            else $('#syncModeCards .mode-pick[data-mode="FULL_DML"]').addClass('selected');
+        }
+
+        function showToast(msg, type) {
+            var el = $('<div class="toast-msg toast-' + (type || 'info') + '">' + msg + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, 3200);
+        }
+        function escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function parseCsv(s) {
+            if (!s) return [];
+            return String(s).split(/[,;]/).map(function(x) { return x.trim(); }).filter(Boolean);
+        }
+
+        function schemaCheckAll(side, check) {
+            var list = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            $(list + ' input').each(function() {
+                var allow = true;
+                if (check && window.SchemaMappingUi && SchemaMappingUi.defaultSchemaChecked) {
+                    allow = SchemaMappingUi.defaultSchemaChecked($(this).val());
+                }
+                if (!check || allow) {
+                    $(this).prop('checked', check);
+                } else if (check) {
+                    $(this).prop('checked', false);
+                }
+            });
+            if (side === 'source') {
+                var srcChecked = $('#sourceSchemaCheckList input:checked').map(function() { return $(this).val(); }).get();
+                var matchedTgt = matchTargetsLocal(srcChecked);
+                if (matchedTgt.length) {
+                    // 确保目标列表包含匹配项
+                    allTgtSchemas = mergeSchemaNames(allTgtSchemas, matchedTgt);
+                    renderSchemaCheckList('target', allTgtSchemas, matchedTgt);
+                }
+            }
+            onSchemaChange();
+        }
+
+        function matchSchemasFromTables() {
+            bootstrapSchemasFromSeed();
+            var n = $('#sourceSchemaCheckList input:checked').length;
+            showToast(n ? ('已按待同步表匹配 ' + n + ' 个源库') : '待同步表无库名前缀（需 schema::table）', n ? 'success' : 'danger');
+        }
+
+        function onSchemaChange() { renderSchemaMapping(); }
+
+        function renderSchemaMapping() {
+            if (!window.SchemaMappingUi || !SchemaMappingUi.renderSchemaMappingPanel) return;
+            SchemaMappingUi.renderSchemaMappingPanel({
+                srcChecked: $('#sourceSchemaCheckList input:checked').map(function() { return $(this).val(); }).get(),
+                tgtChecked: $('#targetSchemaCheckList input:checked').map(function() { return $(this).val(); }).get(),
+                allSrc: allSrcSchemas,
+                allTgt: allTgtSchemas,
+                savedMapping: task.schemaMapping || '',
+                escHtml: escHtml
+            });
+        }
+
+        function applyTargetPrefix() {
+            var prefix = ($('#tgtPrefix').val() || '').trim();
+            if (!prefix) { showToast('请输入目标库前缀，如 prd_', 'danger'); return; }
+            var tgtSet = {};
+            allTgtSchemas.forEach(function(n) { tgtSet[n] = true; });
+            $('#schemaMappingRows .schema-map-sel').each(function() {
+                var src = $(this).data('src');
+                var guess = prefix + src;
+                if (tgtSet[guess]) $(this).val(guess);
+                else if (tgtSet[prefix.replace(/_$/, '') + '_' + src]) $(this).val(prefix.replace(/_$/, '') + '_' + src);
+            });
+            showToast('已按前缀尝试映射', 'success');
+        }
+
+        function selectedCatalogCsv(side) {
+            var list = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            var checked = $(list + ' input:checked').map(function() { return $(this).val(); }).get();
+            var total = $(list + ' input').length;
+            if (!total) return side === 'source' ? (task.sourceSchema || '') : (task.targetSchema || '');
+            if (checked.length === 0) return '';
+            return checked.join(',');
+        }
+
+        function renderTableList() {
+            var q = ($('#tableSearch').val() || '').toLowerCase().trim();
+            var map = {};
+            selectedTables.forEach(function(t) { map[t] = true; });
+            var rows = loadedTables || [];
+            var html = '';
+            rows.forEach(function(t) {
+                var name = t.name || t;
+                if (q && name.toLowerCase().indexOf(q) < 0) return;
+                var schemaName = '', display = name;
+                if (name.indexOf('::') >= 0) {
+                    var parts = name.split('::');
+                    schemaName = parts[0];
+                    display = parts.slice(1).join('::');
+                }
+                html += '<label class="table-item"><input type="checkbox" class="tbl-cb" value="' + escHtml(name) + '"' +
+                    (map[name] ? ' checked' : '') + ' onchange="onTableToggle(this)">' +
+                    (schemaName ? '<span class="schema-tag">' + escHtml(schemaName) + '</span>' : '') +
+                    '<span>' + escHtml(display) + '</span></label>';
+            });
+            if (!html) html = '<div class="text-muted small p-3">无匹配表。可点「刷新库表」从源库加载。</div>';
+            $('#tableListWrap').html(html);
+            $('#selectedTableCount').text(selectedTables.length);
+            syncConnDefault();
+        }
+
+        function onTableToggle(el) {
+            var v = el.value;
+            var idx = selectedTables.indexOf(v);
+            if (el.checked && idx < 0) selectedTables.push(v);
+            if (!el.checked && idx >= 0) selectedTables.splice(idx, 1);
+            $('#selectedTableCount').text(selectedTables.length);
+            syncConnDefault();
+        }
+
+        function setAllTables(on) {
+            var q = ($('#tableSearch').val() || '').toLowerCase().trim();
+            var visible = {};
+            (loadedTables || []).forEach(function(t) {
+                var name = t.name || t;
+                if (!q || name.toLowerCase().indexOf(q) >= 0) visible[name] = true;
+            });
+            if (on) {
+                Object.keys(visible).forEach(function(n) {
+                    if (selectedTables.indexOf(n) < 0) selectedTables.push(n);
+                });
+            } else {
+                selectedTables = selectedTables.filter(function(n) { return !visible[n]; });
+            }
+            renderTableList();
+        }
+
+        function loadSourceTables(force) {
+            if (!task.sourceDataSourceId) { showToast('缺少源数据源', 'danger'); return; }
+            var catalog = selectedCatalogCsv('source');
+            $('#tableListWrap').html('<div class="text-muted small p-3">正在加载表…</div>');
+            $.get('/datasource/tables/' + task.sourceDataSourceId, { catalog: catalog || '', schema: '' })
+                .done(function(res) {
+                    if (!res || !res.success) {
+                        showToast((res && res.msg) || '加载表失败', 'danger');
+                        renderTableList();
+                        return;
+                    }
+                    loadedTables = (res.tables || []).map(function(t) {
+                        return { name: t.name || t };
+                    }).filter(function(t) { return t.name; });
+                    selectedTables.forEach(function(n) {
+                        var found = loadedTables.some(function(t) { return t.name === n; });
+                        if (!found) loadedTables.push({ name: n });
+                    });
+                    renderTableList();
+                    if (force) showToast('已刷新 ' + loadedTables.length + ' 张表', 'success');
+                })
+                .fail(function() {
+                    showToast('加载表失败', 'danger');
+                    renderTableList();
+                });
+        }
+
+        function buildPatch() {
+            if (!selectedTables.length) {
+                showToast('请至少勾选一张表', 'danger');
+                return null;
+            }
+            if ($('#schemaMappingPanel').is(':visible') && !SchemaMappingUi.validateSchemaMapping()) {
+                showToast('请完成源库 → 目标库映射', 'danger');
+                return null;
+            }
+            var srcCsv = selectedCatalogCsv('source');
+            var tgtCsv = selectedCatalogCsv('target');
+            // 映射面板隐藏时 getSchemaMapping() 为空，绝不能写成空串覆盖已有映射（否则多目标会回退成源库名导致 DELETE 打错库）
+            var mapping = SchemaMappingUi.getSchemaMapping() || '';
+            if (!mapping) {
+                mapping = SchemaMappingUi.buildAutoSchemaMapping(
+                    parseCsv(srcCsv), parseCsv(tgtCsv), task.schemaMapping || '') || task.schemaMapping || '';
+            }
+            return {
+                taskName: $('#taskName').val().trim(),
+                sourceSchema: srcCsv,
+                targetSchema: tgtCsv,
+                schemaMapping: mapping,
+                includeTables: selectedTables.join(','),
+                syncMode: $('#syncMode').val() || 'FULL_DML',
+                batchSize: parseInt($('#batchSize').val(), 10) || 20000,
+                parallelThreads: Math.min(20, Math.max(1, parseInt($('#parallelThreads').val(), 10) || defaultConnCount()))
+            };
+        }
+
+        function saveDraft(cb) {
+            var patch = buildPatch();
+            if (!patch) return;
+            $('#saveBtn').prop('disabled', true).text('保存中…');
+            $.ajax({
+                url: '/sync/draft/' + taskId,
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(patch),
+                success: function(res) {
+                    $('#saveBtn').prop('disabled', false).text('保存草稿');
+                    if (res.success) {
+                        task.schemaMapping = patch.schemaMapping;
+                        task.sourceSchema = patch.sourceSchema;
+                        task.targetSchema = patch.targetSchema;
+                        task.syncMode = patch.syncMode;
+                        applyConfirmMode(patch.syncMode);
+                        showToast('已保存', 'success');
+                        if (cb) cb(true);
+                    } else {
+                        showToast(res.msg || '保存失败', 'danger');
+                        if (cb) cb(false);
+                    }
+                },
+                error: function() {
+                    $('#saveBtn').prop('disabled', false).text('保存草稿');
+                    showToast('请求失败', 'danger');
+                    if (cb) cb(false);
+                }
+            });
+        }
+
+        function saveAndStart() {
+            var mode = $('#syncMode').val() || 'FULL_DML';
+            var dangerHtml;
+            if (mode === 'DATA_SYNC') {
+                dangerHtml = '即将按<strong>差异同步</strong>启动：按主键 INSERT/UPDATE/DELETE。表须有主键；会删除目标多余行。';
+            } else if (mode === 'PK_UPSERT') {
+                dangerHtml = '即将按<strong>增量同步</strong>启动：不清空目标表，按主键 UPDATE 已有行、INSERT 新行。';
+            } else if (mode === 'DATA_TRANSFER') {
+                dangerHtml = '即将按<strong>数据传输</strong>启动：清空目标表后全量写入。';
+            } else if (mode === 'INCREMENTAL') {
+                dangerHtml = '即将按<strong>仅插入</strong>启动：不清空目标表，冲突行跳过（不更新）。';
+            } else {
+                dangerHtml = '即将按当前配置启动同步。<br><br>'
+                    + '<strong style="color:#c2410c;">FULL_DML / FULL_DDL 会清空目标库对应表后再写入源库数据</strong>，'
+                    + '请确认库名映射与勾选表无误。';
+            }
+            AppConfirm.open({
+                title: '确认开始同步',
+                html: dangerHtml,
+                confirmText: '开始同步',
+                cancelText: '再检查一下',
+                danger: mode === 'FULL_DML' || mode === 'FULL_DDL' || mode === 'DATA_TRANSFER' || mode === 'DATA_SYNC' || mode === 'DATAX',
+                onConfirm: function() {
+                    saveDraft(function(ok) {
+                        if (!ok) return;
+                        var btn = $('#startBtn');
+                        btn.prop('disabled', true).text('启动中…');
+                        $.ajax({
+                            url: '/sync/start/' + taskId,
+                            type: 'POST',
+                            success: function(res) {
+                                if (res.success) {
+                                    showToast('已启动', 'success');
+                                    setTimeout(function() { location.href = '/sync/progress/' + taskId; }, 500);
+                                } else {
+                                    showToast(res.msg || '启动失败', 'danger');
+                                    btn.prop('disabled', false).text('开始同步');
+                                }
+                            },
+                            error: function() {
+                                showToast('请求失败', 'danger');
+                                btn.prop('disabled', false).text('开始同步');
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        function deleteDraft() {
+            AppConfirm.open({
+                title: '删除同步草稿',
+                message: '确定删除该草稿？删除后不可恢复。',
+                confirmText: '删除草稿',
+                cancelText: '保留',
+                danger: true,
+                onConfirm: function() {
+                    $.ajax({
+                        url: '/sync/delete/' + taskId,
+                        type: 'DELETE',
+                        success: function(res) {
+                            if (res.success) location.href = '/sync/list';
+                            else showToast(res.msg || '删除失败', 'danger');
+                        }
+                    });
+                }
+            });
+        }
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/confirm-dialog.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

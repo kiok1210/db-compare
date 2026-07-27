@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据库比对工具 - 首页</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <script th:src="@{/js/echarts.min.js}"></script>
+    <style>
+        /* Hero section */
+        .hero {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+            border-radius: var(--radius-xl);
+            padding: 2.5rem 2.5rem 2rem;
+            color: white;
+            margin-bottom: 1.75rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::after {
+            content: '';
+            position: absolute;
+            right: -60px;
+            top: -60px;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: rgba(255,255,255,.06);
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            right: 80px;
+            bottom: -80px;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: rgba(255,255,255,.04);
+        }
+        .hero h1 { font-size: 1.8rem; font-weight: 800; position: relative; z-index: 1; margin-bottom: .5rem; }
+        .hero p { opacity: .85; font-size: 1rem; position: relative; z-index: 1; max-width: 520px; }
+
+        /* Quick actions */
+        .quick-action {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            text-decoration: none;
+            color: var(--color-text);
+            transition: var(--transition);
+        }
+        .quick-action:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-lg);
+            border-color: var(--color-primary-light);
+            color: var(--color-text);
+        }
+        .quick-action .qa-icon {
+            width: 46px; height: 46px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            flex-shrink: 0;
+        }
+        .qa-icon-add { background: var(--color-primary-bg); color: var(--color-primary); }
+        .qa-icon-compare { background: var(--color-success-bg); color: var(--color-success); }
+        .qa-icon-report { background: var(--color-info-bg); color: var(--color-info); }
+        .quick-action .qa-title { font-weight: 700; font-size: .9rem; }
+        .quick-action .qa-desc { font-size: .75rem; color: var(--color-text-muted); }
+
+        /* Chart card */
+        .chart-card { padding: .5rem; }
+        .chart-card .card-header { font-size: .88rem; }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/">
+                <span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具
+            </a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="app-container">
+        <!-- Hero -->
+        <div class="hero">
+            <h1>欢迎使用数据库全库比对工具</h1>
+            <p>自动化比对数据库迁移前后的数据一致性，支持多数据库类型，可视化报告，快速发现差异。</p>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="row g-3 mb-4">
+            <div class="col-lg-3 col-6">
+                <div class="stat-card sc-primary">
+                    <div class="stat-icon">&#128451;</div>
+                    <div>
+                        <div class="stat-value" id="dataSourceCount">0</div>
+                        <div class="stat-label">已配置数据源</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-6">
+                <div class="stat-card sc-info">
+                    <div class="stat-icon">&#9881;</div>
+                    <div>
+                        <div class="stat-value" id="taskCount">0</div>
+                        <div class="stat-label">总任务数</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-6">
+                <div class="stat-card sc-success">
+                    <div class="stat-icon">&#10003;</div>
+                    <div>
+                        <div class="stat-value" id="successCount">0</div>
+                        <div class="stat-label">成功完成</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-6">
+                <div class="stat-card sc-danger">
+                    <div class="stat-icon">&#10007;</div>
+                    <div>
+                        <div class="stat-value" id="failedCount">0</div>
+                        <div class="stat-label">执行失败</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts + Quick Actions -->
+        <div class="row g-4 mb-4">
+            <div class="col-lg-8">
+                <div class="card chart-card">
+                    <div class="card-header">
+                        <h6 class="mb-0">任务状态分布</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="chart1" style="width:100%;height:320px;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card" style="height:100%;">
+                    <div class="card-header">
+                        <h6 class="mb-0">快速操作</h6>
+                    </div>
+                    <div class="card-body d-flex flex-column gap-3 justify-content-center">
+                        <a href="/datasource/add" class="quick-action">
+                            <div class="qa-icon qa-icon-add">&#43;</div>
+                            <div>
+                                <div class="qa-title">添加数据源</div>
+                                <div class="qa-desc">配置源库或目标库连接</div>
+                            </div>
+                        </a>
+                        <a href="/compare/config" class="quick-action">
+                            <div class="qa-icon qa-icon-compare">&#8644;</div>
+                            <div>
+                                <div class="qa-title">创建比对任务</div>
+                                <div class="qa-desc">开始一次数据库比对</div>
+                            </div>
+                        </a>
+                        <a href="/sync/config" class="quick-action">
+                            <div class="qa-icon qa-icon-compare" style="background:#fef3c7;color:#92400e;">&#128260;</div>
+                            <div>
+                                <div class="qa-title">创建同步任务</div>
+                                <div class="qa-desc">源库数据同步到目标库</div>
+                            </div>
+                        </a>
+                        <a href="/report/list?tab=compare" class="quick-action">
+                            <div class="qa-icon qa-icon-report">&#128196;</div>
+                            <div>
+                                <div class="qa-title">查看报告</div>
+                                <div class="qa-desc">查看历史比对结果</div>
+                            </div>
+                        </a>
+                        <a href="/settings" class="quick-action">
+                            <div class="qa-icon qa-icon-add" style="background:#eef2ff;color:#4338ca;">&#9881;</div>
+                            <div>
+                                <div class="qa-title">参数设置</div>
+                                <div class="qa-desc">并行数、批次等全局默认</div>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        $.get('/api/stats', function(data) {
+            $('#dataSourceCount').text(data.dataSourceCount || 0);
+            $('#taskCount').text(data.taskCount || 0);
+            $('#successCount').text(data.successCount || 0);
+            $('#failedCount').text(data.failedCount || 0);
+
+            var chart1 = echarts.init(document.getElementById('chart1'));
+            var total = (data.successCount||0) + (data.failedCount||0) + (data.runningCount||0);
+            var option1 = {
+                tooltip: { trigger: 'item', backgroundColor: '#fff', borderColor: '#e2e8f0', textStyle: { color: '#1e293b' } },
+                legend: { bottom: 0, textStyle: { fontSize: 12 } },
+                series: [{
+                    type: 'pie',
+                    radius: ['55%', '80%'],
+                    center: ['50%', '48%'],
+                    avoidLabelOverlap: false,
+                    itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 3 },
+                    label: { show: false },
+                    emphasis: { label: { show: true, fontWeight: 'bold' }, scaleSize: 8 },
+                    data: [
+                        { value: data.successCount||0, name: '成功', itemStyle: { color: '#10b981' } },
+                        { value: data.failedCount||0,  name: '失败', itemStyle: { color: '#ef4444' } },
+                        { value: data.runningCount||0, name: '运行中', itemStyle: { color: '#6366f1' } }
+                    ].filter(function(d) { return total > 0 || d.name === '成功'; })
+                }]
+            };
+            chart1.setOption(option1);
+        });
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "db-compare",
+  "version": "1.0.0",
+  "description": "基于 Spring Boot + Thymeleaf 的 Web 工具：管理数据源、全库比对、数据同步（MySQL / GoldenDB / PostgreSQL / Oracle / SQL Server / H2 / SQLite）。  \r 当前版本：**v1.2.25**（详见 `src/main/resources/version-changelog.json`）。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

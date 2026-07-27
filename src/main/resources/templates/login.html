@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <style>
+        body.login-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(145deg, #eef2ff 0%, #f1f5f9 45%, #e2e8f0 100%);
+        }
+        .login-card {
+            width: 100%;
+            max-width: 400px;
+            background: var(--color-surface, #fff);
+            border-radius: 14px;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,.08), 0 8px 10px -6px rgba(0,0,0,.05);
+            border: 1px solid var(--color-border, #e2e8f0);
+            padding: 2rem 1.75rem 1.5rem;
+        }
+        .login-brand {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .login-brand .mark {
+            font-size: 1.6rem;
+            color: #4f46e5;
+        }
+        .login-brand h1 {
+            font-size: 1.25rem;
+            font-weight: 800;
+            margin: .4rem 0 0;
+            color: #1e293b;
+        }
+        .login-brand p {
+            font-size: .8rem;
+            color: #64748b;
+            margin: .35rem 0 0;
+        }
+    </style>
+</head>
+<body class="login-page">
+<div class="login-card">
+    <div class="login-brand">
+        <div class="mark">&#9670;</div>
+        <h1>数据库比对工具</h1>
+        <p>请登录后继续使用</p>
+    </div>
+
+    <div th:if="${errorMsg}" class="alert alert-danger py-2" style="font-size:.85rem;" th:text="${errorMsg}"></div>
+    <div th:if="${infoMsg}" class="alert alert-success py-2" style="font-size:.85rem;" th:text="${infoMsg}"></div>
+
+    <form th:action="@{/login}" method="post" autocomplete="off">
+        <div class="mb-3">
+            <label class="form-label" for="username">用户名</label>
+            <input type="text" class="form-control" id="username" name="username"
+                   required autofocus placeholder="admin">
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="password">密码</label>
+            <input type="password" class="form-control" id="password" name="password"
+                   required placeholder="请输入密码">
+        </div>
+        <button type="submit" class="btn btn-primary w-100">登录</button>
+    </form>
+    <p class="text-muted mt-3 mb-0" style="font-size:.72rem; text-align:center;">
+        默认账号见 <code>application.yml</code> → <code>db-compare.security</code>，生产请立即修改。
+    </p>
+</div>
+</body>
+</html>

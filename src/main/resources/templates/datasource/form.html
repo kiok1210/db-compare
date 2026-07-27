@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${dataSource.id == null ? '添加数据源' : '编辑数据源'}">数据源表单</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <style>
+        .form-section {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
+            padding: 1.75rem;
+            box-shadow: var(--shadow-sm);
+        }
+        .form-hint {
+            font-size: .72rem;
+            color: var(--color-text-muted);
+            margin-top: .25rem;
+        }
+        .db-type-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .db-type-icon {
+            width: 20px; height: 20px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: .65rem;
+            font-weight: 800;
+            color: white;
+        }
+        .dbi-mysql      { background: #3b82f6; }
+        .dbi-postgresql { background: #6366f1; }
+        .dbi-oracle     { background: #ef4444; }
+        .dbi-goldendb   { background: #f59e0b; }
+        .dbi-sqlserver  { background: #0284c7; }
+        .dbi-h2         { background: #10b981; }
+        .dbi-sqlite     { background: #ec4899; }
+        .btn-test-loading {
+            pointer-events: none;
+            opacity: .75;
+        }
+        .btn-test-loading .btn-spinner {
+            display: inline-block;
+            width: 14px; height: 14px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+            vertical-align: -2px;
+            margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #testResultAlert { font-size: .85rem; margin-top: .75rem; }
+        .jms-panel { background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem; }
+        .jms-panel .jms-title { font-weight: 700; font-size: .88rem; color: #92400e; margin-bottom: .5rem; }
+    </style>
+</head>
+<body>
+    <div class="toast-container" id="toastContainer"></div>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <a class="nav-link text-white ms-auto" href="/logout" title="退出登录">退出</a>
+        </div>
+    </nav>
+
+    <div class="app-container" style="max-width: 720px;">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <a href="/datasource/list" class="back-link">&#8592; 返回列表</a>
+            <h4 class="mb-0" th:text="${dataSource.id == null ? '添加数据源' : '编辑数据源'}" style="background:none;-webkit-text-fill-color:var(--color-text);">添加数据源</h4>
+        </div>
+
+        <div class="form-section">
+            <form id="dataSourceForm">
+                <input type="hidden" id="id" th:value="${dataSource.id}">
+
+                <div class="mb-4">
+                    <label class="form-label">数据源名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="name" th:value="${dataSource.name}"
+                           placeholder="例如：生产环境 MySQL" required>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">数据库类型 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="dbType" required onchange="updateUrlPattern()">
+                        <option value="">请选择数据库类型</option>
+                        <option value="MYSQL" th:selected="${dataSource.dbType != null and dataSource.dbType.name() == 'MYSQL'}">MySQL</option>
+                        <option value="POSTGRESQL" th:selected="${dataSource.dbType != null and dataSource.dbType.name() == 'POSTGRESQL'}">PostgreSQL</option>
+                        <option value="ORACLE" th:selected="${dataSource.dbType != null and dataSource.dbType.name() == 'ORACLE'}">Oracle</option>
+                        <option value="GOLDENDB" th:selected="${dataSource.dbType != null and dataSource.dbType.name() == 'GOLDENDB'}">GoldenDB</option>
+                        <option value="SQLSERVER" th:selected="${dataSource.dbType != null and dataSource.dbType.name() == 'SQLSERVER'}">SQL Server</option>
+                        <option value="H2" th:selected="${dataSource.dbType != null and dataSource.dbType.name() == 'H2'}">H2</option>
+                        <option value="SQLITE" th:selected="${dataSource.dbType != null and dataSource.dbType.name() == 'SQLITE'}">SQLite</option>
+                    </select>
+                </div>
+
+                <!-- JumpServer 堡垒机 -->
+                <div class="jms-panel" id="jmsPanel" style="display:none;">
+                    <div class="jms-title">JumpServer 堡垒机连接（MySQL / GoldenDB）</div>
+                    <p class="small text-muted mb-2">从 JumpServer「数据库连接信息」复制下方字段；Token 用户名通常为 UUID，过期后需重新获取。</p>
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-8">
+                            <label class="form-label small mb-0">主机</label>
+                            <input type="text" class="form-control form-control-sm" id="jmsHost" placeholder="jms.zking.com">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-0">端口</label>
+                            <input type="text" class="form-control form-control-sm" id="jmsPort" placeholder="33061">
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-0">Token 用户名</label>
+                        <input type="text" class="form-control form-control-sm" id="jmsUser" placeholder="4a359dc4-ec98-4d7e-8561-94cc10800cc0">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-0">Token 密码</label>
+                        <input type="password" class="form-control form-control-sm" id="jmsPassword" placeholder="从 JumpServer 复制">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-0">目标库名（填到 Schema，JumpServer 界面「数据库」为空时在此填写）</label>
+                        <input type="text" class="form-control form-control-sm" id="jmsSchema" placeholder="例如：prd_goldendb_thirdparty">
+                    </div>
+                    <button type="button" class="btn btn-sm btn-warning" onclick="applyJumpServerConfig()">应用堡垒机配置</button>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">JDBC URL <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="url" th:value="${dataSource.url}"
+                           placeholder="jdbc:mysql://localhost:3306/dbname" required>
+                    <div class="form-hint" id="urlHint">MySQL/GoldenDB 推荐使用 jdbc:mysql:// 格式，保存时会自动补全连接参数</div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">用户名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="username" th:value="${dataSource.username}" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" th:text="${dataSource.id != null} ? '密码（留空则不修改）' : '密码 *'">密码</label>
+                        <input type="password" class="form-control" id="password"
+                               th:required="${dataSource.id == null}" placeholder="编辑时留空表示不修改密码">
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">Schema / 库名</label>
+                        <input type="text" class="form-control" id="schema" th:value="${dataSource.schema}" placeholder="单库填库名；多库逗号分隔；JumpServer 无库名时在此填写">
+                    </div>
+                    <div class="col-md-6 d-flex align-items-end">
+                        <div class="form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="enabled"
+                                   th:checked="${dataSource.enabled == null or dataSource.enabled}">
+                            <label class="form-check-label fw-semibold" for="enabled">启用此数据源</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">描述</label>
+                    <textarea class="form-control" id="description" rows="2"
+                              th:text="${dataSource.description}" placeholder="备注信息（可选）"></textarea>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center pt-3 border-top">
+                    <div>
+                        <button type="button" class="btn btn-outline-primary" id="testBtn" onclick="testConnection()">
+                            <span id="testBtnIcon">&#9654;</span> 测试连接
+                        </button>
+                        <div id="testResultAlert" style="display:none;"></div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="/datasource/list" class="btn btn-outline-secondary">取消</a>
+                        <button type="button" class="btn btn-primary px-4" onclick="saveDataSource()">保存</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const dbConfigs = {
+            'MYSQL':      { port: 3306, urlPattern: 'jdbc:mysql://host:3306/database', hint: 'MySQL 使用 jdbc:mysql://，会自动追加 useSSL、serverTimezone 等参数' },
+            'POSTGRESQL': { port: 5432, urlPattern: 'jdbc:postgresql://host:5432/database', hint: 'PostgreSQL JDBC 连接地址' },
+            'ORACLE':     { port: 1521, urlPattern: 'jdbc:oracle:thin:@host:1521:database', hint: 'Oracle thin 连接' },
+            'GOLDENDB':   { port: 3306, urlPattern: 'jdbc:mysql://jms.zking.com:33061/', hint: 'GoldenDB 经 JumpServer：URL 填 jdbc:mysql://堡垒机主机:端口/ ，库名填 Schema' },
+            'SQLSERVER':  { port: 1433, urlPattern: 'jdbc:sqlserver://host:1433;databaseName=database', hint: 'SQL Server JDBC 连接地址' },
+            'H2':         { port: null, urlPattern: 'jdbc:h2:file:./data/database', hint: 'H2 文件库路径' },
+            'SQLITE':     { port: null, urlPattern: 'jdbc:sqlite:./data/database.db', hint: 'SQLite 文件路径' }
+        };
+
+        var testInProgress = false;
+
+        function updateUrlPattern() {
+            var dbType = $('#dbType').val();
+            $('#jmsPanel').toggle(dbType === 'MYSQL' || dbType === 'GOLDENDB');
+            if (dbType && dbConfigs[dbType]) {
+                $('#url').attr('placeholder', dbConfigs[dbType].urlPattern);
+                $('#urlHint').text(dbConfigs[dbType].hint);
+            } else {
+                $('#url').attr('placeholder', 'jdbc:xxx://host:port/database');
+                $('#urlHint').text('请根据数据库类型填写正确的 JDBC 连接地址');
+            }
+        }
+
+        function applyJumpServerConfig() {
+            var host = $('#jmsHost').val().trim();
+            var port = $('#jmsPort').val().trim();
+            var user = $('#jmsUser').val().trim();
+            var pwd = $('#jmsPassword').val();
+            var schema = $('#jmsSchema').val().trim();
+
+            if (!host) { showToast('请填写 JumpServer 主机', 'danger'); return; }
+            if (!port) { showToast('请填写端口', 'danger'); return; }
+            if (!user) { showToast('请填写 Token 用户名', 'danger'); return; }
+            if (!pwd) { showToast('请填写 Token 密码', 'danger'); return; }
+
+            if ($('#dbType').val() !== 'GOLDENDB' && $('#dbType').val() !== 'MYSQL') {
+                $('#dbType').val('GOLDENDB');
+            }
+            // URL 不带库名，库名走 Schema（与 JumpServer 界面「数据库」为空一致）
+            var url = 'jdbc:mysql://' + host + ':' + port + '/';
+            if (schema) {
+                url = 'jdbc:mysql://' + host + ':' + port + '/' + schema;
+            }
+            $('#url').val(url);
+            $('#username').val(user);
+            $('#password').val(pwd);
+            if (schema) {
+                $('#schema').val(schema);
+            }
+            updateUrlPattern();
+            showToast('已填入 JumpServer 配置，请点击「测试连接」', 'success');
+        }
+
+        function setTestLoading(loading) {
+            testInProgress = loading;
+            var $btn = $('#testBtn');
+            if (loading) {
+                $btn.addClass('btn-test-loading').prop('disabled', true);
+                $('#testBtnIcon').html('<span class="btn-spinner"></span>');
+            } else {
+                $btn.removeClass('btn-test-loading').prop('disabled', false);
+                $('#testBtnIcon').html('&#9654;');
+            }
+        }
+
+        function showTestResult(success, msg) {
+            var $alert = $('#testResultAlert');
+            $alert.removeClass('alert-success alert-danger')
+                .addClass(success ? 'alert alert-success' : 'alert alert-danger')
+                .text(msg).show();
+            showToast(msg, success ? 'success' : 'danger');
+        }
+
+        function testConnection() {
+            if (testInProgress) return;
+
+            var id = $('#id').val();
+            var password = $('#password').val();
+            var dbType = $('#dbType').val();
+            var url = $('#url').val().trim();
+            var username = $('#username').val().trim();
+
+            if (!dbType) { showTestResult(false, '请选择数据库类型'); return; }
+            if (!url) { showTestResult(false, '请填写 JDBC URL'); return; }
+            if (!username) { showTestResult(false, '请填写用户名'); return; }
+
+            setTestLoading(true);
+            $('#testResultAlert').hide();
+
+            if (id && !password) {
+                var configWithSavedPwd = { id: parseInt(id, 10), dbType: dbType, url: url, username: username, password: '' };
+                $.ajax({
+                    url: '/datasource/test',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(configWithSavedPwd)
+                }).done(function(res) {
+                    showTestResult(!!res.success, res.msg || (res.success ? '连接成功' : '连接失败'));
+                }).fail(function(xhr) {
+                    showTestResult(false, parseAjaxError(xhr));
+                }).always(function() {
+                    setTestLoading(false);
+                });
+                return;
+            }
+
+            if (!password) {
+                setTestLoading(false);
+                showTestResult(false, '请填写密码');
+                return;
+            }
+
+            var config = { dbType: dbType, url: url, username: username, password: password };
+            $.ajax({
+                url: '/datasource/test',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(config)
+            }).done(function(res) {
+                showTestResult(!!res.success, res.msg || (res.success ? '连接成功' : '连接失败'));
+            }).fail(function(xhr) {
+                showTestResult(false, parseAjaxError(xhr));
+            }).always(function() {
+                setTestLoading(false);
+            });
+        }
+
+        function parseAjaxError(xhr) {
+            if (xhr.responseJSON && xhr.responseJSON.msg) return xhr.responseJSON.msg;
+            if (xhr.status === 0) return '网络请求失败，请检查服务是否运行';
+            return '请求失败 (HTTP ' + xhr.status + ')';
+        }
+
+        function saveDataSource() {
+            var id = $('#id').val();
+            var config = {
+                id: id || null,
+                name: $('#name').val(),
+                dbType: $('#dbType').val(),
+                url: $('#url').val(),
+                username: $('#username').val(),
+                password: $('#password').val(),
+                schema: $('#schema').val(),
+                description: $('#description').val(),
+                enabled: $('#enabled').is(':checked')
+            };
+            $.ajax({
+                url: '/datasource/save',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(config),
+                success: function(res) {
+                    if (res.success) {
+                        showToast('保存成功！', 'success');
+                        location.href = '/datasource/list';
+                    } else {
+                        showToast('保存失败：' + res.msg, 'danger');
+                    }
+                },
+                error: function() { showToast('请求失败', 'danger'); }
+            });
+        }
+        $(function() { updateUrlPattern(); });
+    </script>
+    <script>
+        function showToast(msg, type) {
+            type = type || 'info';
+            var duration = type === 'danger' ? 8000 : 3000;
+            var el = $('<div class="toast-msg toast-' + type + '">' + escHtml(msg) + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, duration);
+        }
+        function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    </script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

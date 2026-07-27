@@ -1,0 +1,712 @@
+package com.gcoll.dbcompare.service;
+
+/**
+ * 比对报告 HTML 运行时增强：注入顶部导航，并强制覆盖「提取为同步任务」逻辑（创建后顶层跳转）。
+ */
+public final class CompareReportHtmlSupport {
+
+    private CompareReportHtmlSupport() {
+    }
+
+    public static String enhance(String html, long compareTaskId) {
+        if (html == null || html.isEmpty()) {
+            return html;
+        }
+        String out = html;
+        if (!out.contains("data-dbcompare-nav=\"1\"")) {
+            out = injectAfterBodyOpen(out, buildNavBlock());
+        }
+        // 始终注入：覆盖 Bootstrap .modal-dialog { pointer-events:none } 导致弹窗内按钮点不中
+        out = removeMarkedBlocks(out, "data-dbcompare-modal-fix=\"1\"");
+        out = injectAfterBodyOpen(out, buildModalPointerFixStyle());
+        // 友好提示（替代 alert）
+        out = removeMarkedBlocks(out, "data-dbcompare-ui=\"1\"");
+        out = injectBeforeBodyClose(out, buildUiHelperScripts());
+        // 每次打开都替换 force 脚本
+        out = removeForceExtractScripts(out);
+        out = injectBeforeBodyClose(out, buildForceExtractScript(compareTaskId));
+        // 条数差异 → 差异数据详情
+        out = removeMarkedBlocks(out, "data-dbcompare-row-diff=\"1\"");
+        out = injectBeforeBodyClose(out, buildRowDiffScript(compareTaskId));
+        // 报告页重新执行比对
+        out = removeMarkedBlocks(out, "data-dbcompare-reexec=\"1\"");
+        out = injectBeforeBodyClose(out, buildReExecuteScript(compareTaskId));
+        return out;
+    }
+
+    private static String buildUiHelperScripts() {
+        return "<script src=\"/js/app-toast.js\" data-dbcompare-ui=\"1\"></script>\n"
+                + "<script src=\"/js/confirm-dialog.js\" data-dbcompare-ui=\"1\"></script>\n";
+    }
+
+    private static String buildModalPointerFixStyle() {
+        return "<style data-dbcompare-modal-fix=\"1\">"
+                + "#dimModal.modal-overlay .modal-dialog,"
+                + "#dimModal .dim-modal-dialog,"
+                + "#dimModal .modal-dialog *,"
+                + "#dimModal .dim-modal-dialog *{pointer-events:auto!important;}"
+                + "</style>\n";
+    }
+
+    /** 按 data-* 标记移除已注入的 style/script 块（幂等替换用） */
+    static String removeMarkedBlocks(String html, String marker) {
+        String out = html;
+        while (true) {
+            String lower = out.toLowerCase();
+            int markerIdx = lower.indexOf(marker.toLowerCase());
+            if (markerIdx < 0) {
+                break;
+            }
+            int startStyle = lower.lastIndexOf("<style", markerIdx);
+            int startScript = lower.lastIndexOf("<script", markerIdx);
+            int start = Math.max(startStyle, startScript);
+            if (start < 0) {
+                break;
+            }
+            String closeTag = start == startStyle ? "</style>" : "</script>";
+            int close = lower.indexOf(closeTag, markerIdx);
+            if (close < 0) {
+                break;
+            }
+            close += closeTag.length();
+            if (close < out.length() && out.charAt(close) == '\n') {
+                close++;
+            }
+            out = out.substring(0, start) + out.substring(close);
+        }
+        return out;
+    }
+
+    static String injectAfterBodyOpen(String html, String snippet) {
+        int idx = indexOfIgnoreCase(html, "<body");
+        if (idx < 0) {
+            return snippet + html;
+        }
+        int gt = html.indexOf('>', idx);
+        if (gt < 0) {
+            return snippet + html;
+        }
+        return html.substring(0, gt + 1) + "\n" + snippet + html.substring(gt + 1);
+    }
+
+    static String injectBeforeBodyClose(String html, String snippet) {
+        int idx = indexOfIgnoreCase(html, "</body>");
+        if (idx < 0) {
+            return html + snippet;
+        }
+        return html.substring(0, idx) + snippet + "\n" + html.substring(idx);
+    }
+
+    /**
+     * 移除已注入的 force 提取脚本（可能有多份历史副本）。
+     */
+    static String removeForceExtractScripts(String html) {
+        String marker = "data-dbcompare-extract-force=\"1\"";
+        String out = html;
+        while (true) {
+            String lower = out.toLowerCase();
+            int markerIdx = lower.indexOf(marker);
+            if (markerIdx < 0) {
+                break;
+            }
+            int scriptStart = lower.lastIndexOf("<script", markerIdx);
+            int close = lower.indexOf("</script>", markerIdx);
+            if (scriptStart < 0 || close < 0) {
+                break;
+            }
+            close += "</script>".length();
+            if (close < out.length() && out.charAt(close) == '\n') {
+                close++;
+            }
+            out = out.substring(0, scriptStart) + out.substring(close);
+        }
+        return out;
+    }
+
+    private static int indexOfIgnoreCase(String haystack, String needle) {
+        return haystack.toLowerCase().indexOf(needle.toLowerCase());
+    }
+
+    private static String buildNavBlock() {
+        return "<style data-dbcompare-nav=\"1\">"
+                + "html,body{margin:0;}"
+                + ".dbcompare-topnav{background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;"
+                + "padding:0 16px;min-height:56px;display:flex;align-items:center;justify-content:center;"
+                + "box-shadow:0 2px 8px rgba(0,0,0,.12);position:sticky;top:0;z-index:2000;}"
+                + ".dbcompare-topnav-inner{width:100%;max-width:1140px;display:flex;align-items:center;"
+                + "justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 0;}"
+                + ".dbcompare-topnav a{color:#fff;text-decoration:none;font-size:.9rem;padding:6px 10px;"
+                + "border-radius:6px;white-space:nowrap;}"
+                + ".dbcompare-topnav a:hover{background:rgba(255,255,255,.14);}"
+                + ".dbcompare-topnav .brand{font-weight:700;font-size:1.05rem;}"
+                + ".dbcompare-topnav .links{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}"
+                // 兼容旧报告仍用 .modal-dialog：覆盖 Bootstrap 的 pointer-events:none
+                + "#dimModal.modal-overlay .modal-dialog,#dimModal .dim-modal-dialog,"
+                + "#dimModal .modal-dialog *,#dimModal .dim-modal-dialog *{pointer-events:auto!important;}"
+                + "</style>"
+                + "<nav data-dbcompare-nav=\"1\" class=\"dbcompare-topnav\">"
+                + "<div class=\"dbcompare-topnav-inner\">"
+                + "<a class=\"brand\" href=\"/\">&#9670; 数据库比对工具</a>"
+                + "<div class=\"links\">"
+                + "<a href=\"/datasource/list\">数据源管理</a>"
+                + "<a href=\"/compare/config\">比对任务</a>"
+                + "<a href=\"/sync/list\">同步任务</a>"
+                + "<a href=\"/report/list\">比对报告</a>"
+                + "<a href=\"/viewer\">数据浏览</a>"
+                + "<a href=\"/settings\">参数设置</a>"
+                + "</div></div></nav>\n";
+    }
+
+    private static String buildForceExtractScript(long compareTaskId) {
+        // 单一可靠路径：覆盖 window.extractCountDiffSync + 绑定按钮（不销毁重建，避免点击落到遮罩上误关弹窗）
+        return "<script data-dbcompare-extract-force=\"1\">\n"
+                + "(function(){\n"
+                + "  var COMPARE_TASK_ID = " + compareTaskId + ";\n"
+                + "  var extracting = false;\n"
+                + "  function toast(msg, type){\n"
+                + "    if (window.AppToast && AppToast.show) AppToast.show(msg, type || 'info');\n"
+                + "    else if (window.showToast) showToast(msg, type || 'info');\n"
+                + "  }\n"
+                + "  function absUrl(path){\n"
+                + "    if (!path) return path;\n"
+                + "    if (/^https?:\\/\\//i.test(path)) return path;\n"
+                + "    if (path.charAt(0) !== '/') path = '/' + path;\n"
+                + "    return (window.location.origin || '') + path;\n"
+                + "  }\n"
+                + "  function goConfirm(url){\n"
+                + "    var target = absUrl(url);\n"
+                + "    try { window.location.href = target; return; } catch (e0) {}\n"
+                + "    try { window.location.assign(target); } catch (e1) {}\n"
+                + "    try { window.top.location.href = target; } catch (e2) {}\n"
+                + "  }\n"
+                + "  function collectTables(){\n"
+                + "    var tables = [], seen = {};\n"
+                + "    function add(v){\n"
+                + "      if (v == null) return;\n"
+                + "      var s = String(v).trim();\n"
+                + "      if (!s || seen[s]) return;\n"
+                + "      seen[s] = 1; tables.push(s);\n"
+                + "    }\n"
+                + "    var cbs = document.querySelectorAll('#dimModal .count-tbl-cb:checked');\n"
+                + "    for (var i = 0; i < cbs.length; i++) add(cbs[i].value);\n"
+                + "    if (!tables.length && window.dimData && dimData.count && dimData.count.length) {\n"
+                + "      for (var j = 0; j < dimData.count.length; j++) {\n"
+                + "        if (dimData.count[j]) add(dimData.count[j].table);\n"
+                + "      }\n"
+                + "    }\n"
+                + "    return tables;\n"
+                + "  }\n"
+                + "  function doExtract(ev){\n"
+                + "    if (ev) {\n"
+                + "      if (ev.preventDefault) ev.preventDefault();\n"
+                + "      if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();\n"
+                + "    }\n"
+                + "    if (extracting) return false;\n"
+                + "    if (!COMPARE_TASK_ID) { toast('无法识别比对任务 ID', 'danger'); return false; }\n"
+                + "    var tables = collectTables();\n"
+                + "    if (!tables.length) { toast('请至少选择一张条数差异表', 'warning'); return false; }\n"
+                + "    var btn = document.getElementById('extractCountBtn');\n"
+                + "    extracting = true;\n"
+                + "    window.__dbcompareExtracting = true;\n"
+                + "    if (btn) { btn.disabled = true; btn.textContent = '创建中…'; }\n"
+                + "    fetch(absUrl('/sync/from-compare/' + COMPARE_TASK_ID), {\n"
+                + "      method: 'POST',\n"
+                + "      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },\n"
+                + "      credentials: 'same-origin',\n"
+                + "      body: JSON.stringify({ tables: tables, syncMode: 'FULL_DML' })\n"
+                + "    }).then(function(r){\n"
+                + "      return r.text().then(function(txt){\n"
+                + "        var res = {};\n"
+                + "        try { res = txt ? JSON.parse(txt) : {}; } catch (e) {\n"
+                + "          throw new Error((r.ok ? '响应不是 JSON: ' : ('HTTP ' + r.status + ': ')) + String(txt).slice(0,180));\n"
+                + "        }\n"
+                + "        if (!r.ok) throw new Error(res.msg || ('HTTP ' + r.status));\n"
+                + "        return res;\n"
+                + "      });\n"
+                + "    }).then(function(res){\n"
+                + "      if (res && (res.success === true || res.success === 'true') && res.taskId) {\n"
+                + "        if (btn) btn.textContent = '已创建 #' + res.taskId + '，正在跳转…';\n"
+                + "        goConfirm(res.confirmUrl || ('/sync/confirm/' + res.taskId));\n"
+                + "      } else {\n"
+                + "        extracting = false; window.__dbcompareExtracting = false;\n"
+                + "        toast((res && res.msg) ? res.msg : '创建同步任务失败', 'danger');\n"
+                + "        if (btn) { btn.disabled = false; btn.textContent = '提取为同步任务'; }\n"
+                + "      }\n"
+                + "    }).catch(function(e){\n"
+                + "      extracting = false; window.__dbcompareExtracting = false;\n"
+                + "      toast('提取失败: ' + (e && e.message ? e.message : e), 'danger');\n"
+                + "      if (btn) { btn.disabled = false; btn.textContent = '提取为同步任务'; }\n"
+                + "    });\n"
+                + "    return false;\n"
+                + "  }\n"
+                + "  window.extractCountDiffSync = doExtract;\n"
+                + "  function wireExtractButton(btn){\n"
+                + "    if (!btn || btn.__dbcompareWired) return;\n"
+                + "    btn.__dbcompareWired = true;\n"
+                + "    btn.setAttribute('data-dbcompare-extract', '1');\n"
+                + "    btn.setAttribute('type', 'button');\n"
+                + "    btn.onclick = doExtract;\n"
+                + "    if (btn.addEventListener) {\n"
+                + "      btn.addEventListener('click', doExtract, true);\n"
+                + "      btn.addEventListener('mousedown', function(ev){\n"
+                + "        if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "      }, true);\n"
+                + "    }\n"
+                + "  }\n"
+                + "  function ensureExtractButton(){\n"
+                + "    var btn = document.getElementById('extractCountBtn');\n"
+                + "    var toolbar = document.getElementById('modalToolbar');\n"
+                + "    if (!btn && toolbar) {\n"
+                + "      toolbar.classList.add('show');\n"
+                + "      toolbar.style.display = 'flex';\n"
+                + "      if (!toolbar.querySelector('.hint')) {\n"
+                + "        var hint = document.createElement('span');\n"
+                + "        hint.className = 'hint';\n"
+                + "        hint.textContent = '勾选后提取为同步草稿（不会自动运行）';\n"
+                + "        toolbar.appendChild(hint);\n"
+                + "      }\n"
+                + "      btn = document.createElement('button');\n"
+                + "      btn.type = 'button';\n"
+                + "      btn.id = 'extractCountBtn';\n"
+                + "      btn.className = 'btn-extract';\n"
+                + "      btn.textContent = '提取为同步任务';\n"
+                + "      toolbar.appendChild(btn);\n"
+                + "    }\n"
+                + "    if (btn) wireExtractButton(btn);\n"
+                + "  }\n"
+                + "  function pathHasExtract(ev){\n"
+                + "    function hit(n){\n"
+                + "      if (!n || n.nodeType !== 1) return false;\n"
+                + "      if (n.id === 'extractCountBtn') return true;\n"
+                + "      if (n.getAttribute && n.getAttribute('data-dbcompare-extract') === '1') return true;\n"
+                + "      return !!(n.classList && n.classList.contains('btn-extract'));\n"
+                + "    }\n"
+                + "    var path = ev.composedPath ? ev.composedPath() : null;\n"
+                + "    if (path && path.length) {\n"
+                + "      for (var i = 0; i < path.length; i++) if (hit(path[i])) return true;\n"
+                + "      return false;\n"
+                + "    }\n"
+                + "    var el = ev.target;\n"
+                + "    if (el && el.nodeType === 3) el = el.parentElement;\n"
+                + "    while (el && el !== document) {\n"
+                + "      if (hit(el)) return true;\n"
+                + "      el = el.parentElement;\n"
+                + "    }\n"
+                + "    return false;\n"
+                + "  }\n"
+                + "  function onDocClick(ev){\n"
+                + "    if (!pathHasExtract(ev)) return;\n"
+                + "    doExtract(ev);\n"
+                + "  }\n"
+                + "  function onDocMouseDown(ev){\n"
+                + "    if (!pathHasExtract(ev)) return;\n"
+                + "    // 只拦冒泡，勿 preventDefault，否则部分浏览器会吃掉后续 click\n"
+                + "    if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "  }\n"
+                + "  function patchOpenDimModal(){\n"
+                + "    if (typeof window.openDimModal !== 'function') return false;\n"
+                + "    if (window.openDimModal.__dbcompareForcePatched) return true;\n"
+                + "    var orig = window.openDimModal;\n"
+                + "    window.openDimModal = function(type){\n"
+                + "      orig.apply(this, arguments);\n"
+                + "      if (type === 'count') setTimeout(ensureExtractButton, 0);\n"
+                + "    };\n"
+                + "    window.openDimModal.__dbcompareForcePatched = true;\n"
+                + "    return true;\n"
+                + "  }\n"
+                + "  function patchOverlayClose(){\n"
+                + "    var modal = document.getElementById('dimModal');\n"
+                + "    if (!modal || modal.__dbcompareOverlayPatched) return !!modal;\n"
+                + "    modal.__dbcompareOverlayPatched = true;\n"
+                + "    modal.addEventListener('click', function(ev){\n"
+                + "      if (window.__dbcompareExtracting) {\n"
+                + "        if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "        return;\n"
+                + "      }\n"
+                + "      if (pathHasExtract(ev)) {\n"
+                + "        if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "        return;\n"
+                + "      }\n"
+                + "    }, true);\n"
+                + "    return true;\n"
+                + "  }\n"
+                + "  function boot(){\n"
+                + "    if (!document.__dbcompareExtractBound) {\n"
+                + "      document.addEventListener('click', onDocClick, true);\n"
+                + "      document.addEventListener('mousedown', onDocMouseDown, true);\n"
+                + "      document.__dbcompareExtractBound = true;\n"
+                + "    }\n"
+                + "    patchOpenDimModal();\n"
+                + "    patchOverlayClose();\n"
+                + "    ensureExtractButton();\n"
+                + "    var tries = 0;\n"
+                + "    var timer = setInterval(function(){\n"
+                + "      tries++;\n"
+                + "      patchOpenDimModal();\n"
+                + "      patchOverlayClose();\n"
+                + "      if (tries > 40) clearInterval(timer);\n"
+                + "    }, 50);\n"
+                + "  }\n"
+                + "  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);\n"
+                + "  else boot();\n"
+                + "})();\n"
+                + "</script>\n";
+    }
+
+    private static String buildRowDiffScript(long compareTaskId) {
+        return "<style data-dbcompare-row-diff=\"1\">"
+                + ".btn-row-diff{background:#fff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:6px;"
+                + "padding:4px 10px;font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap;}"
+                + ".btn-row-diff:hover{background:#eef2ff;}.btn-row-diff:disabled{opacity:.55;cursor:not-allowed;}"
+                + ".btn-back-dim{background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;border-radius:6px;"
+                + "padding:6px 12px;font-size:.82rem;cursor:pointer;margin-right:8px;}"
+                + ".diff-type-src{color:#059669;font-weight:600;}.diff-type-tgt{color:#dc2626;font-weight:600;}"
+                + ".pk-chip{display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;"
+                + "padding:1px 6px;margin:1px 4px 1px 0;font-family:ui-monospace,Consolas,monospace;font-size:.78rem;}"
+                + "#dimModal .dim-modal-dialog.wide{max-width:1100px;}"
+                + "</style>\n"
+                + "<script data-dbcompare-row-diff=\"1\">\n"
+                + "(function(){\n"
+                + "  var COMPARE_TASK_ID = " + compareTaskId + ";\n"
+                + "  var loading = false;\n"
+                + "  var lastCountType = 'count';\n"
+                + "  function toast(msg, type){\n"
+                + "    if (window.AppToast && AppToast.show) AppToast.show(msg, type || 'info');\n"
+                + "    else if (window.showToast) showToast(msg, type || 'info');\n"
+                + "    else alert(msg);\n"
+                + "  }\n"
+                + "  function esc(s){\n"
+                + "    if (s === null || s === undefined) return '';\n"
+                + "    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n"
+                + "  }\n"
+                + "  function fmtPk(pk){\n"
+                + "    if (!pk || typeof pk !== 'object') return esc(pk);\n"
+                + "    var parts = [];\n"
+                + "    for (var k in pk) {\n"
+                + "      if (!Object.prototype.hasOwnProperty.call(pk, k)) continue;\n"
+                + "      parts.push('<span class=\"pk-chip\">' + esc(k) + '=' + esc(pk[k]) + '</span>');\n"
+                + "    }\n"
+                + "    return parts.join('') || '-';\n"
+                + "  }\n"
+                + "  function typeLabel(t){\n"
+                + "    if (t === 'only_in_source' || t === 'missing') return '<span class=\"diff-type-src\">仅源库有</span>';\n"
+                + "    if (t === 'only_in_target' || t === 'extra') return '<span class=\"diff-type-tgt\">仅目标库有</span>';\n"
+                + "    if (t === 'mismatch') return '<span style=\"color:#d97706;font-weight:600;\">字段不一致</span>';\n"
+                + "    return esc(t || '');\n"
+                + "  }\n"
+                + "  function ensureRowDiffButtons(){\n"
+                + "    var body = document.getElementById('modalBody');\n"
+                + "    if (!body) return;\n"
+                + "    var table = body.querySelector('table.modal-tbl');\n"
+                + "    if (!table) return;\n"
+                + "    if (table.querySelector('.btn-row-diff')) return;\n"
+                + "    var headRow = table.querySelector('thead tr');\n"
+                + "    if (headRow && !headRow.querySelector('.th-row-diff')) {\n"
+                + "      var th = document.createElement('th');\n"
+                + "      th.className = 'th-row-diff';\n"
+                + "      th.style.width = '110px';\n"
+                + "      th.textContent = '操作';\n"
+                + "      headRow.appendChild(th);\n"
+                + "    }\n"
+                + "    var rows = table.querySelectorAll('tbody tr');\n"
+                + "    for (var i = 0; i < rows.length; i++) {\n"
+                + "      var tr = rows[i];\n"
+                + "      var cb = tr.querySelector('.count-tbl-cb');\n"
+                + "      var tbl = cb ? cb.value : '';\n"
+                + "      if (!tbl) {\n"
+                + "        var strong = tr.querySelector('td strong');\n"
+                + "        if (strong) tbl = strong.textContent || '';\n"
+                + "      }\n"
+                + "      if (!tbl) continue;\n"
+                + "      var td = document.createElement('td');\n"
+                + "      var btn = document.createElement('button');\n"
+                + "      btn.type = 'button';\n"
+                + "      btn.className = 'btn-row-diff';\n"
+                + "      btn.setAttribute('data-table', tbl);\n"
+                + "      btn.textContent = '查看差异数据';\n"
+                + "      td.appendChild(btn);\n"
+                + "      tr.appendChild(td);\n"
+                + "    }\n"
+                + "  }\n"
+                + "  function renderRowDiff(data){\n"
+                + "    var dialog = document.querySelector('#dimModal .dim-modal-dialog');\n"
+                + "    if (dialog) dialog.classList.add('wide');\n"
+                + "    var title = document.getElementById('modalTitle');\n"
+                + "    if (title) title.textContent = '差异数据详情';\n"
+                + "    var toolbar = document.getElementById('modalToolbar');\n"
+                + "    if (toolbar) {\n"
+                + "      toolbar.classList.add('show');\n"
+                + "      toolbar.innerHTML = '<button type=\"button\" class=\"btn-back-dim\" id=\"backCountDiffBtn\">← 返回条数差异</button>' +\n"
+                + "        '<span class=\"hint\">按主键比对，找出仅源库 / 仅目标库存在的行（最多每侧 ' + esc(data.maxDiffRows) + ' 条）</span>';\n"
+                + "      var back = document.getElementById('backCountDiffBtn');\n"
+                + "      if (back) back.onclick = function(){ if (window.openDimModal) openDimModal('count'); };\n"
+                + "    }\n"
+                + "    var body = document.getElementById('modalBody');\n"
+                + "    if (!body) return;\n"
+                + "    var rows = data.diffRows || [];\n"
+                + "    var h = '<p style=\"font-size:.82rem;color:#64748b;margin-bottom:10px;\">表 <strong>' + esc(data.table) + '</strong>' +\n"
+                + "      ' &nbsp;|&nbsp; 源 ' + esc(data.sourceCount) + ' / 目标 ' + esc(data.targetCount) +\n"
+                + "      ' &nbsp;|&nbsp; 仅源 <span class=\"diff-type-src\">' + esc(data.onlyInSourceCount || 0) + '</span>' +\n"
+                + "      ' / 仅目标 <span class=\"diff-type-tgt\">' + esc(data.onlyInTargetCount || 0) + '</span>';\n"
+                + "    if (data.truncated) h += ' <span style=\"color:#d97706;\">（结果已截断，未列全）</span>';\n"
+                + "    if (data.reason) h += '<br><span style=\"color:#64748b;\">' + esc(data.reason) + '</span>';\n"
+                + "    h += '</p>';\n"
+                + "    if (!rows.length) {\n"
+                + "      h += '<p style=\"color:#64748b;text-align:center;padding:16px;\">' +\n"
+                + "        (data.reason ? esc(data.reason) : '未找到主键级差异行（可能无主键，或差异不在采样范围内）') + '</p>';\n"
+                + "      body.innerHTML = h;\n"
+                + "      return;\n"
+                + "    }\n"
+                + "    h += '<table class=\"modal-tbl\"><thead><tr><th style=\"width:40px;\">#</th><th style=\"width:110px;\">类型</th><th>主键</th></tr></thead><tbody>';\n"
+                + "    for (var i = 0; i < rows.length; i++) {\n"
+                + "      var r = rows[i] || {};\n"
+                + "      h += '<tr><td>' + (i + 1) + '</td><td>' + typeLabel(r.type) + '</td><td>' + fmtPk(r.pk) + '</td></tr>';\n"
+                + "    }\n"
+                + "    h += '</tbody></table>';\n"
+                + "    body.innerHTML = h;\n"
+                + "  }\n"
+                + "  function showCountRowDiff(tableName){\n"
+                + "    if (!tableName) { toast('表名为空', 'warning'); return; }\n"
+                + "    if (!COMPARE_TASK_ID) { toast('无法识别比对任务 ID', 'danger'); return; }\n"
+                + "    if (loading) return;\n"
+                + "    loading = true;\n"
+                + "    var btns = document.querySelectorAll('.btn-row-diff');\n"
+                + "    for (var i = 0; i < btns.length; i++) {\n"
+                + "      if (btns[i].getAttribute('data-table') === tableName) {\n"
+                + "        btns[i].disabled = true; btns[i].textContent = '查询中…';\n"
+                + "      }\n"
+                + "    }\n"
+                + "    var body = document.getElementById('modalBody');\n"
+                + "    if (body) body.innerHTML = '<p style=\"text-align:center;color:#64748b;padding:24px;\">正在按主键比对差异行，大表可能需要数十秒…</p>';\n"
+                + "    var title = document.getElementById('modalTitle');\n"
+                + "    if (title) title.textContent = '差异数据详情';\n"
+                + "    var url = '/compare/row-diff/' + COMPARE_TASK_ID + '?table=' + encodeURIComponent(tableName) + '&limit=100';\n"
+                + "    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })\n"
+                + "      .then(function(r){\n"
+                + "        return r.text().then(function(txt){\n"
+                + "          var res = {};\n"
+                + "          try { res = txt ? JSON.parse(txt) : {}; } catch (e) {\n"
+                + "            throw new Error(r.ok ? '响应不是 JSON' : ('HTTP ' + r.status));\n"
+                + "          }\n"
+                + "          if (!r.ok) throw new Error(res.msg || ('HTTP ' + r.status));\n"
+                + "          return res;\n"
+                + "        });\n"
+                + "      })\n"
+                + "      .then(function(res){\n"
+                + "        loading = false;\n"
+                + "        if (!res || !res.success) {\n"
+                + "          toast((res && res.msg) ? res.msg : '查询失败', 'danger');\n"
+                + "          if (window.openDimModal) openDimModal('count');\n"
+                + "          return;\n"
+                + "        }\n"
+                + "        renderRowDiff(res.data || {});\n"
+                + "      })\n"
+                + "      .catch(function(e){\n"
+                + "        loading = false;\n"
+                + "        toast('查询失败: ' + (e && e.message ? e.message : e), 'danger');\n"
+                + "        if (window.openDimModal) openDimModal('count');\n"
+                + "      });\n"
+                + "  }\n"
+                + "  window.showCountRowDiff = showCountRowDiff;\n"
+                + "  function onRowDiffClick(ev){\n"
+                + "    var el = ev.target;\n"
+                + "    if (el && el.nodeType === 3) el = el.parentElement;\n"
+                + "    while (el && el !== document) {\n"
+                + "      if (el.classList && el.classList.contains('btn-row-diff')) {\n"
+                + "        if (ev.preventDefault) ev.preventDefault();\n"
+                + "        if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "        showCountRowDiff(el.getAttribute('data-table'));\n"
+                + "        return;\n"
+                + "      }\n"
+                + "      el = el.parentElement;\n"
+                + "    }\n"
+                + "  }\n"
+                + "  function patchOpen(){\n"
+                + "    if (typeof window.openDimModal !== 'function') return false;\n"
+                + "    if (window.openDimModal.__dbcompareRowDiffPatched) return true;\n"
+                + "    var orig = window.openDimModal;\n"
+                + "    window.openDimModal = function(type){\n"
+                + "      lastCountType = type;\n"
+                + "      var dialog = document.querySelector('#dimModal .dim-modal-dialog');\n"
+                + "      if (dialog && type === 'count') dialog.classList.remove('wide');\n"
+                + "      orig.apply(this, arguments);\n"
+                + "      if (type === 'count') setTimeout(ensureRowDiffButtons, 0);\n"
+                + "    };\n"
+                + "    window.openDimModal.__dbcompareRowDiffPatched = true;\n"
+                + "    return true;\n"
+                + "  }\n"
+                + "  function boot(){\n"
+                + "    if (!document.__dbcompareRowDiffBound) {\n"
+                + "      document.addEventListener('click', onRowDiffClick, true);\n"
+                + "      document.__dbcompareRowDiffBound = true;\n"
+                + "    }\n"
+                + "    patchOpen();\n"
+                + "    var tries = 0;\n"
+                + "    var timer = setInterval(function(){\n"
+                + "      tries++;\n"
+                + "      patchOpen();\n"
+                + "      if (document.getElementById('dimModal') && document.getElementById('dimModal').classList.contains('show')) {\n"
+                + "        ensureRowDiffButtons();\n"
+                + "      }\n"
+                + "      if (tries > 40) clearInterval(timer);\n"
+                + "    }, 50);\n"
+                + "  }\n"
+                + "  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);\n"
+                + "  else boot();\n"
+                + "})();\n"
+                + "</script>\n";
+    }
+
+    private static String buildReExecuteScript(long compareTaskId) {
+        return "<style data-dbcompare-reexec=\"1\">"
+                + ".dbcompare-topnav .btn-reexec,"
+                + ".rpt-header .btn-reexec{display:inline-flex;align-items:center;gap:6px;"
+                + "background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.45);"
+                + "border-radius:8px;padding:6px 14px;font-size:.84rem;font-weight:600;cursor:pointer;"
+                + "text-decoration:none;white-space:nowrap;}"
+                + ".dbcompare-topnav .btn-reexec:hover,"
+                + ".rpt-header .btn-reexec:hover{background:rgba(255,255,255,.28);}"
+                + ".dbcompare-topnav .btn-reexec:disabled,"
+                + ".rpt-header .btn-reexec:disabled{opacity:.55;cursor:not-allowed;}"
+                + ".rpt-header-top{display:flex;align-items:flex-start;justify-content:space-between;"
+                + "gap:12px;flex-wrap:wrap;}"
+                + ".rpt-header-top h1{margin:0;}"
+                + "</style>\n"
+                + "<script data-dbcompare-reexec=\"1\">\n"
+                + "(function(){\n"
+                + "  var COMPARE_TASK_ID = " + compareTaskId + ";\n"
+                + "  var busy = false;\n"
+                + "  function toast(msg, type){\n"
+                + "    if (window.AppToast && AppToast.show) AppToast.show(msg, type || 'info');\n"
+                + "    else if (window.showToast) showToast(msg, type || 'info');\n"
+                + "    else alert(msg);\n"
+                + "  }\n"
+                + "  function absUrl(path){\n"
+                + "    if (!path) return path;\n"
+                + "    if (/^https?:\\/\\//i.test(path)) return path;\n"
+                + "    if (path.charAt(0) !== '/') path = '/' + path;\n"
+                + "    return (window.location.origin || '') + path;\n"
+                + "  }\n"
+                + "  function goProgress(taskId){\n"
+                + "    var target = absUrl('/compare/progress/' + taskId);\n"
+                + "    try { window.location.href = target; return; } catch (e0) {}\n"
+                + "    try { window.location.assign(target); } catch (e1) {}\n"
+                + "  }\n"
+                + "  function setBusy(on){\n"
+                + "    busy = !!on;\n"
+                + "    var btns = document.querySelectorAll('[data-dbcompare-reexec-btn=\"1\"]');\n"
+                + "    for (var i = 0; i < btns.length; i++) {\n"
+                + "      btns[i].disabled = busy;\n"
+                + "      btns[i].textContent = busy ? '提交中…' : '↻ 重新执行';\n"
+                + "    }\n"
+                + "  }\n"
+                + "  function doReExecute(){\n"
+                + "    if (busy) return;\n"
+                + "    if (!COMPARE_TASK_ID) { toast('无法识别比对任务 ID', 'danger'); return; }\n"
+                + "    setBusy(true);\n"
+                + "    fetch(absUrl('/compare/reExecute/' + COMPARE_TASK_ID), {\n"
+                + "      method: 'POST',\n"
+                + "      credentials: 'same-origin',\n"
+                + "      headers: { 'Accept': 'application/json' }\n"
+                + "    }).then(function(r){\n"
+                + "      return r.text().then(function(txt){\n"
+                + "        var res = {};\n"
+                + "        try { res = txt ? JSON.parse(txt) : {}; } catch (e) {\n"
+                + "          throw new Error(r.ok ? '响应不是 JSON' : ('HTTP ' + r.status));\n"
+                + "        }\n"
+                + "        if (!r.ok) throw new Error(res.msg || ('HTTP ' + r.status));\n"
+                + "        return res;\n"
+                + "      });\n"
+                + "    }).then(function(res){\n"
+                + "      if (res && (res.success === true || res.success === 'true') && res.taskId) {\n"
+                + "        toast('已提交重新比对，正在跳转进度页…', 'success');\n"
+                + "        goProgress(res.taskId);\n"
+                + "      } else {\n"
+                + "        setBusy(false);\n"
+                + "        toast((res && res.msg) ? res.msg : '重新执行失败', 'danger');\n"
+                + "      }\n"
+                + "    }).catch(function(e){\n"
+                + "      setBusy(false);\n"
+                + "      toast('重新执行失败: ' + (e && e.message ? e.message : e), 'danger');\n"
+                + "    });\n"
+                + "  }\n"
+                + "  function confirmThenReExecute(){\n"
+                + "    var msg = '将基于当前比对任务配置创建新任务并立即执行（不会覆盖本报告）。确认继续？';\n"
+                + "    if (window.AppConfirm && AppConfirm.open) {\n"
+                + "      AppConfirm.open({\n"
+                + "        title: '重新执行比对',\n"
+                + "        message: msg,\n"
+                + "        confirmText: '开始重新执行',\n"
+                + "        cancelText: '取消',\n"
+                + "        onConfirm: doReExecute\n"
+                + "      });\n"
+                + "      return;\n"
+                + "    }\n"
+                + "    if (window.confirm(msg)) doReExecute();\n"
+                + "  }\n"
+                + "  window.reExecuteCompareFromReport = confirmThenReExecute;\n"
+                + "  function makeBtn(){\n"
+                + "    var btn = document.createElement('button');\n"
+                + "    btn.type = 'button';\n"
+                + "    btn.className = 'btn-reexec';\n"
+                + "    btn.setAttribute('data-dbcompare-reexec-btn', '1');\n"
+                + "    btn.textContent = '↻ 重新执行';\n"
+                + "    btn.addEventListener('click', function(ev){\n"
+                + "      if (ev.preventDefault) ev.preventDefault();\n"
+                + "      if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "      confirmThenReExecute();\n"
+                + "    });\n"
+                + "    return btn;\n"
+                + "  }\n"
+                + "  function wireExisting(btn){\n"
+                + "    if (!btn || btn.__dbcompareReexecWired) return;\n"
+                + "    btn.__dbcompareReexecWired = true;\n"
+                + "    btn.setAttribute('data-dbcompare-reexec-btn', '1');\n"
+                + "    btn.type = 'button';\n"
+                + "    btn.addEventListener('click', function(ev){\n"
+                + "      if (ev.preventDefault) ev.preventDefault();\n"
+                + "      if (ev.stopPropagation) ev.stopPropagation();\n"
+                + "      confirmThenReExecute();\n"
+                + "    });\n"
+                + "  }\n"
+                + "  function ensureButtons(){\n"
+                + "    if (!COMPARE_TASK_ID) return;\n"
+                + "    var existing = document.querySelectorAll('#btnReExecuteCompare, [data-dbcompare-reexec-btn=\"1\"]');\n"
+                + "    for (var i = 0; i < existing.length; i++) wireExisting(existing[i]);\n"
+                + "    var links = document.querySelector('.dbcompare-topnav .links');\n"
+                + "    if (links && !links.querySelector('[data-dbcompare-reexec-btn=\"1\"]')) {\n"
+                + "      links.appendChild(makeBtn());\n"
+                + "    }\n"
+                + "    var header = document.querySelector('.rpt-header');\n"
+                + "    if (header && !header.querySelector('[data-dbcompare-reexec-btn=\"1\"]')) {\n"
+                + "      var top = header.querySelector('.rpt-header-top');\n"
+                + "      if (!top) {\n"
+                + "        top = document.createElement('div');\n"
+                + "        top.className = 'rpt-header-top';\n"
+                + "        var h1 = header.querySelector('h1');\n"
+                + "        if (h1) {\n"
+                + "          header.insertBefore(top, h1);\n"
+                + "          top.appendChild(h1);\n"
+                + "        } else {\n"
+                + "          header.insertBefore(top, header.firstChild);\n"
+                + "        }\n"
+                + "      }\n"
+                + "      top.appendChild(makeBtn());\n"
+                + "    }\n"
+                + "  }\n"
+                + "  function boot(){\n"
+                + "    ensureButtons();\n"
+                + "    var tries = 0;\n"
+                + "    var timer = setInterval(function(){\n"
+                + "      tries++;\n"
+                + "      ensureButtons();\n"
+                + "      if (tries > 20) clearInterval(timer);\n"
+                + "    }, 50);\n"
+                + "  }\n"
+                + "  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);\n"
+                + "  else boot();\n"
+                + "})();\n"
+                + "</script>\n";
+    }
+}

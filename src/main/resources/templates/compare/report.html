@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>比对任务详情 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white active" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="app-container" style="max-width: 720px;">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <a href="/report/list" class="back-link">&#8592; 返回列表</a>
+            <h4 class="mb-0 fw-bold" style="background:none;-webkit-text-fill-color:var(--color-text);">任务详情</h4>
+        </div>
+
+        <div class="card" style="box-shadow: var(--shadow-md);">
+            <div class="card-header">
+                <h5 class="mb-0 fw-bold" th:text="'任务: ' + ${task.taskName}">任务详情</h5>
+            </div>
+            <div class="card-body">
+                <div class="confirm-row">
+                    <div class="confirm-label">状态</div>
+                    <div class="confirm-value">
+                        <span th:if="${task.status == 'SUCCESS'}" class="status-pill sp-success">SUCCESS</span>
+                        <span th:unless="${task.status == 'SUCCESS'}" class="status-pill sp-muted" th:text="${task.status}"></span>
+                    </div>
+                </div>
+                <div class="confirm-row">
+                    <div class="confirm-label">进度</div>
+                    <div class="confirm-value">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="progress-mini flex-fill">
+                                <div class="progress-mini-fill" th:classappend="${task.status == 'SUCCESS' ? 'fill-success' : task.status == 'FAILED' ? 'fill-failed' : 'fill-running'}"
+                                     th:style="'width:' + ${task.progress} + '%'"></div>
+                            </div>
+                            <span class="fw-bold" th:text="${task.progress} + '%'" style="font-size:.8rem;"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="confirm-row" th:if="${task.currentTable}">
+                    <div class="confirm-label">当前表</div>
+                    <div class="confirm-value"><code th:text="${task.currentTable}" style="color:var(--color-primary);"></code></div>
+                </div>
+                <div class="confirm-row" th:if="${task.errorMessage}">
+                    <div class="confirm-label">错误信息</div>
+                    <div class="confirm-value text-danger" th:text="${task.errorMessage}"></div>
+                </div>
+                <div th:if="${task.status == 'RUNNING' || task.status == 'PENDING'}" class="alert alert-info mt-3 mb-0">
+                    任务尚未完成，请稍后刷新或前往<a href="/report/list" class="fw-bold">任务列表</a>查看进度。
+                </div>
+                <div class="mt-4">
+                    <a href="/report/list" class="btn btn-outline-secondary">返回列表</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

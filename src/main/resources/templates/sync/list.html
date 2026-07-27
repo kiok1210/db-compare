@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>同步任务列表 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <style>
+        .task-row td { vertical-align: middle; }
+        .task-row:hover { background: var(--color-primary-bg) !important; }
+        .btn-action { padding: .28em .65em; font-size: .72rem; font-weight: 600; border-radius: 6px; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white active" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list?tab=sync">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="app-container">
+        <div class="page-header">
+            <div>
+                <h2>同步任务列表</h2>
+                <p class="text-muted mb-0" style="font-size:.82rem;">将源库数据同步到目标库（DML全量 / DDL全量 / 增量）</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="auto-refresh-badge" id="autoRefreshBadge" onclick="toggleAutoRefresh()">&#8635; 自动刷新：开</span>
+                <a href="/sync/config" class="btn btn-primary"><span style="font-size:1.1rem;line-height:1;">&#43;</span> 新建同步任务</a>
+            </div>
+        </div>
+
+        <div class="filter-bar">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <select class="form-select form-select-sm" id="statusFilter" onchange="applyFilter()" style="width:130px;">
+                    <option value="">全部状态</option>
+                    <option value="PENDING">待确认</option>
+                    <option value="RUNNING">执行中</option>
+                    <option value="SUCCESS">已成功</option>
+                    <option value="PARTIAL">部分成功</option>
+                    <option value="FAILED">已失败</option>
+                    <option value="CANCELLED">已取消</option>
+                </select>
+                <input type="text" class="form-control form-control-sm" id="nameSearch" placeholder="搜索任务名称..." style="width:220px;" oninput="applyFilter()">
+            </div>
+        </div>
+
+        <div class="card" style="box-shadow: var(--shadow-md);">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table mb-0" id="taskTable">
+                        <thead>
+                            <tr>
+                                <th style="width:55px;">ID</th>
+                                <th>任务名称</th>
+                                <th style="width:100px;">状态</th>
+                                <th style="width:130px;">进度</th>
+                                <th style="width:110px;">已处理/总表数</th>
+                                <th style="width:140px;">创建时间</th>
+                                <th style="width:90px;">耗时</th>
+                                <th style="width:260px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="taskTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="empty-state" id="emptyState" style="display:none;">
+                    <span class="es-icon">&#128260;</span>
+                    <h5>暂无同步任务</h5>
+                    <p>点击右上角「新建同步任务」开始第一次数据同步</p>
+                    <a href="/sync/config" class="btn btn-primary">立即创建</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="deleteModal" tabindex="-1">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header"><h6 class="modal-title fw-bold">确认删除</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body" style="font-size:.88rem;">确定要删除任务 <strong id="deleteTaskName" style="color:var(--color-danger);"></strong> 吗？</div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-danger btn-sm" onclick="confirmDelete()">确认删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        var allTasks = /*[[${tasks}]]*/ [];
+        var filteredTasks = [];
+        var autoRefreshEnabled = true;
+        var refreshTimer = null;
+        var deleteTargetId = null;
+        var deleteModal = null;
+
+        $(function() {
+            deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+            applyFilter();
+            startAutoRefresh();
+        });
+
+        function showToast(msg, type) {
+            type = type || 'info';
+            var el = $('<div class="toast-msg toast-' + type + '">' + msg + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, 3000);
+        }
+
+        function startAutoRefresh() { refreshTimer = setInterval(refreshData, 4000); }
+        function stopAutoRefresh() { if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; } }
+        function toggleAutoRefresh() {
+            autoRefreshEnabled = !autoRefreshEnabled;
+            if (autoRefreshEnabled) { $('#autoRefreshBadge').removeClass('off').html('&#8635; 自动刷新：开'); startAutoRefresh(); }
+            else { $('#autoRefreshBadge').addClass('off').html('&#9208; 自动刷新：关'); stopAutoRefresh(); }
+        }
+
+        function refreshData() {
+            $.get('/sync/api/tasks', function(res) {
+                if (res && res.tasks) { allTasks = res.tasks; applyFilter(); }
+            });
+        }
+
+        function applyFilter() {
+            var statusVal = $('#statusFilter').val();
+            var nameVal = $('#nameSearch').val().toLowerCase().trim();
+            filteredTasks = (allTasks || []).filter(function(t) {
+                var statusOk = !statusVal || t.status === statusVal;
+                var nameOk = !nameVal || (t.taskName || '').toLowerCase().indexOf(nameVal) >= 0;
+                return statusOk && nameOk;
+            });
+            renderTable(filteredTasks);
+        }
+
+        function renderTable(tasks) {
+            if (!tasks || tasks.length === 0) { $('#taskTable').hide(); $('#emptyState').show(); return; }
+            $('#taskTable').show(); $('#emptyState').hide();
+            var html = '';
+            tasks.forEach(function(t) { html += renderRow(t); });
+            $('#taskTableBody').html(html);
+        }
+
+        function renderRow(t) {
+            var scMap = { PENDING:'sp-muted', RUNNING:'sp-running', SUCCESS:'sp-success', PARTIAL:'sp-warning', FAILED:'sp-danger', CANCELLED:'sp-muted' };
+            var fcMap = { PENDING:'fill-pending', RUNNING:'fill-running', SUCCESS:'fill-success', PARTIAL:'fill-failed', FAILED:'fill-failed', CANCELLED:'fill-pending' };
+            var pct = t.progress || 0;
+            var ops = '';
+            var awaiting = t.status === 'PENDING' && !t.startTime;
+            if (awaiting) {
+                ops += '<a href="/sync/confirm/' + t.id + '" class="btn btn-sm btn-outline-primary btn-action me-1">编辑</a>';
+                ops += '<a href="/sync/confirm/' + t.id + '" class="btn btn-sm btn-warning btn-action me-1">确认并启动</a>';
+                ops += '<button class="btn btn-sm btn-outline-secondary btn-action" onclick="showDelete(' + t.id + ',\'' + escHtml(t.taskName) + '\')">删除</button>';
+            } else if (t.status === 'RUNNING' || t.status === 'PENDING') {
+                ops += '<a href="/sync/progress/' + t.id + '" class="btn btn-sm btn-outline-primary btn-action me-1">查看进度</a>';
+            } else {
+                ops += '<a href="/sync/report/' + t.id + '" class="btn btn-sm btn-success btn-action me-1">查看报告</a>';
+                ops += '<a href="/sync/progress/' + t.id + '" class="btn btn-sm btn-outline-secondary btn-action me-1">详情</a>';
+                ops += '<button class="btn btn-sm btn-outline-primary btn-action me-1" onclick="reExecute(' + t.id + ')">重新执行</button>';
+                ops += '<button class="btn btn-sm btn-outline-secondary btn-action" onclick="showDelete(' + t.id + ',\'' + escHtml(t.taskName) + '\')">删除</button>';
+            }
+            return '<tr class="task-row">' +
+                '<td class="text-muted" style="font-size:.78rem;">#' + t.id + '</td>' +
+                '<td><a href="/sync/progress/' + t.id + '" class="text-decoration-none fw-bold" style="color:var(--color-text);">' + escHtml(t.taskName || '-') + '</a></td>' +
+                '<td><span class="status-pill ' + (scMap[t.status]||'sp-muted') + '">' + t.status + '</span></td>' +
+                '<td><div class="progress" style="height:6px;"><div class="progress-bar ' + (fcMap[t.status]||'fill-pending') + '" style="width:' + pct + '%"></div></div><small class="text-muted">' + pct + '%</small></td>' +
+                '<td style="font-size:.82rem;">' + (t.processedTables||0) + ' / ' + (t.totalTables||'-') + '</td>' +
+                '<td style="font-size:.78rem;">' + (t.createTime ? formatDate(new Date(t.createTime)) : '-') + '</td>' +
+                '<td style="font-size:.78rem;">' + calcElapsed(t.startTime, t.endTime, t.status) + '</td>' +
+                '<td>' + ops + '</td></tr>';
+        }
+
+        function reExecute(id) {
+            $.post('/sync/reExecute/' + id, {}, function(res) {
+                if (res.success) { showToast('任务已启动', 'success'); setTimeout(function() { location.href = '/sync/progress/' + res.taskId; }, 600); }
+                else showToast(res.msg || '失败', 'danger');
+            });
+        }
+
+        function showDelete(id, name) { deleteTargetId = id; $('#deleteTaskName').text(name); deleteModal.show(); }
+        function confirmDelete() {
+            deleteModal.hide();
+            $.ajax({ url: '/sync/delete/' + deleteTargetId, type: 'DELETE', success: function(res) {
+                if (res.success) { showToast('已删除', 'success'); refreshData(); }
+                else showToast(res.msg, 'danger');
+            }});
+        }
+
+        function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;'); }
+        function pad(n) { return n < 10 ? '0' + n : '' + n; }
+        function formatDate(d) { return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes()); }
+        function calcElapsed(start, end, status) {
+            if (!start) return '-';
+            var s = new Date(start).getTime();
+            var e = end ? new Date(end).getTime() : (status === 'RUNNING' ? Date.now() : s);
+            var sec = Math.floor((e - s) / 1000);
+            if (sec < 60) return sec + 's';
+            return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+        }
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

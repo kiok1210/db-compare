@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创建比对任务 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <script th:src="@{/js/schema-mapping.js}"></script>
+    <style>
+        .ds-conn-status { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .ds-conn-ok { background: var(--color-success); }
+        .ds-conn-fail { background: var(--color-danger); }
+        .ds-conn-checking { background: var(--color-warning); animation: blink 1s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+        .ds-name { font-weight: 700; font-size: .9rem; }
+        .ds-meta { font-size: .75rem; color: var(--color-text-muted); margin-top: 2px; }
+
+        .step-counter { font-size: .72rem; color: var(--color-text-muted); margin-bottom: .25rem; }
+
+
+        .history-row { transition: var(--transition); }
+        .history-row:hover { background: var(--color-primary-bg) !important; }
+
+        .schema-selector-compare { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: .6rem .8rem; }
+        .schema-checkbox-list { max-height: 180px; overflow-y: auto; margin-top: 4px; }
+        .schema-checkbox-list label { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: .82rem; cursor: pointer; margin: 0; }
+        .schema-checkbox-list label:hover { background: var(--color-primary-bg); border-radius: 4px; }
+        .schema-checkbox-list input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--color-primary); }
+        .schema-select-actions { display: flex; gap: 8px; margin-bottom: 4px; }
+        .schema-select-actions .btn-schema-sm { font-size: .72rem; padding: 1px 10px; border-radius: 12px; background: none; border: 1px solid var(--color-border); cursor: pointer; color: var(--color-text-muted); }
+        .schema-select-actions .btn-schema-sm:hover { background: var(--color-primary-bg); color: var(--color-primary); }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white active" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+                
+            </div>
+        </div>
+    </nav>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="submitting-overlay" id="submittingOverlay" style="display:none;">
+        <div class="submitting-box">
+            <div class="spinner-ring mx-auto mb-3"></div>
+            <h5 class="fw-bold mb-1">正在提交任务</h5>
+            <p class="text-muted mb-0" style="font-size:.82rem;">请稍候，正在连接数据源...</p>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <a href="/report/list" class="back-link">&#8592; 返回列表</a>
+            <h4 class="mb-0 fw-bold" style="background:none;-webkit-text-fill-color:var(--color-text);">创建比对任务</h4>
+        </div>
+
+        <!-- Wizard Steps -->
+        <div class="wizard-steps mb-4" id="wizardSteps">
+            <div class="wizard-step active" id="wizStep1">
+                <div class="step-circle">1</div>
+                <div class="step-label">选择数据源</div>
+            </div>
+            <div class="wizard-step" id="wizStep2">
+                <div class="step-circle">2</div>
+                <div class="step-label">比对配置</div>
+            </div>
+            <div class="wizard-step" id="wizStep3">
+                <div class="step-circle">3</div>
+                <div class="step-label">选择表范围</div>
+            </div>
+            <div class="wizard-step" id="wizStep4">
+                <div class="step-circle">4</div>
+                <div class="step-label">确认执行</div>
+            </div>
+        </div>
+
+        <div class="card" style="box-shadow: var(--shadow-md);">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="step-counter" id="stepCounter">步骤 1 / 4</div>
+                    <h5 class="mb-0 fw-bold" id="panelTitle">选择数据源</h5>
+                </div>
+                <p class="text-muted mb-0" style="font-size:.78rem;" id="panelSubtitle">配置源数据库和目标数据库连接</p>
+            </div>
+            <div class="card-body p-4">
+
+                <!-- ===== Step 1: Data Sources ===== -->
+                <div id="panel1" class="step-panel active">
+                    <div class="mb-4">
+                        <label class="form-label">任务名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="taskName"
+                               placeholder="例如：生产环境迁移验证_20260615" maxlength="100" style="font-size:.95rem;">
+                        <div class="invalid-feedback">请输入任务名称</div>
+                    </div>
+
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <div class="section-title">&#128309; 源数据源</div>
+                            <div id="sourceDsList">
+                                <div class="spinner-wrap">
+                                    <div class="spinner-ring"></div>
+                                    <span class="text-muted" style="font-size:.82rem;">加载中...</span>
+                                </div>
+                            </div>
+                            <div class="schema-selector-compare mt-2" id="sourceSchemaSelector" style="display:none;">
+                                <label class="form-label" style="font-size:.78rem;font-weight:600;">选择库/模式 <small class="text-muted">(多选)</small></label>
+                                <div class="schema-select-actions">
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('source', true)">全选</button>
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('source', false)">全不选</button>
+                                </div>
+                                <div class="schema-checkbox-list" id="sourceSchemaCheckList"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="section-title">&#128308; 目标数据源</div>
+                            <div id="targetDsList">
+                                <div class="spinner-wrap">
+                                    <div class="spinner-ring"></div>
+                                    <span class="text-muted" style="font-size:.82rem;">加载中...</span>
+                                </div>
+                            </div>
+                            <div class="schema-selector-compare mt-2" id="targetSchemaSelector" style="display:none;">
+                                <label class="form-label" style="font-size:.78rem;font-weight:600;">选择库/模式 <small class="text-muted">(多选)</small></label>
+                                <div class="schema-select-actions">
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('target', true)">全选</button>
+                                    <button class="btn-schema-sm" type="button" onclick="schemaCheckAll('target', false)">全不选</button>
+                                </div>
+                                <div class="schema-checkbox-list" id="targetSchemaCheckList"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 库名映射（多库模式且源库与目标库名不一致时显示） -->
+                    <div class="card border-0 bg-light p-3 rounded-3 mt-3" id="schemaMappingPanel" style="display:none;">
+                        <div class="section-title mb-2">&#128279; 库名映射 <small class="text-muted">(源库名与目标库名不一致时配置)</small></div>
+                        <div id="schemaMappingRows"></div>
+                    </div>
+
+                    <div class="nav-btn-row">
+                        <div></div>
+                        <button class="btn btn-primary px-4" onclick="goStep(1, 2)">
+                            下一步：比对配置 &#8594;
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ===== Step 2: Compare Options ===== -->
+                <div id="panel2" class="step-panel">
+                    <div class="mb-4">
+                        <div class="section-title">比对模式</div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="mode-card selected" data-mode="FULL" onclick="selectMode(this)">
+                                    <div class="mode-icon">&#128269;</div>
+                                    <div class="mode-title">全量比对</div>
+                                    <div class="mode-desc">逐行比对所有数据，结果最准确</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mode-card" data-mode="SAMPLE" onclick="selectMode(this)">
+                                    <div class="mode-icon">&#127919;</div>
+                                    <div class="mode-title">抽样比对</div>
+                                    <div class="mode-desc">按比例随机抽样，速度快</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mode-card" data-mode="INCREMENTAL" onclick="selectMode(this)">
+                                    <div class="mode-icon">&#9201;</div>
+                                    <div class="mode-title">增量比对</div>
+                                    <div class="mode-desc">基于时间戳，只比对变更数据</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="sampleRateWrap" class="mt-3" style="display:none;">
+                            <label class="form-label fw-semibold">抽样比例</label>
+                            <div class="d-flex align-items-center gap-3">
+                                <input type="range" class="form-range flex-1" id="sampleRateSlider" min="1" max="100" value="10"
+                                       oninput="document.getElementById('sampleRateVal').textContent=this.value+'%';document.getElementById('sampleRate').value=this.value;">
+                                <span class="badge bg-primary fs-6 px-3" id="sampleRateVal" style="font-size:.9rem!important;">10%</span>
+                                <input type="hidden" id="sampleRate" value="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section-title">比对内容</div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <label class="check-option" for="compareSchema">
+                                <input type="checkbox" id="compareSchema" checked>
+                                <div>
+                                    <div class="check-option-label">&#128451; 表结构比对</div>
+                                    <div class="check-option-desc">字段、类型、主键差异</div>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="check-option" for="compareIndex">
+                                <input type="checkbox" id="compareIndex" checked>
+                                <div>
+                                    <div class="check-option-label">&#128209; 索引比对</div>
+                                    <div class="check-option-desc">索引名称、列、唯一性</div>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="check-option" for="compareCount">
+                                <input type="checkbox" id="compareCount" checked>
+                                <div>
+                                    <div class="check-option-label">&#128202; 数据量比对</div>
+                                    <div class="check-option-desc">行数一致性检查</div>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="check-option" for="compareData">
+                                <input type="checkbox" id="compareData" checked>
+                                <div>
+                                    <div class="check-option-label">&#128196; 数据内容比对</div>
+                                    <div class="check-option-desc">聚合 COUNT+SUM+Hash</div>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="check-option" for="compareFunction">
+                                <input type="checkbox" id="compareFunction" checked>
+                                <div>
+                                    <div class="check-option-label">&#9881; 函数比对</div>
+                                    <div class="check-option-desc">函数列表一致性</div>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="check-option" for="compareProcedure">
+                                <input type="checkbox" id="compareProcedure" checked>
+                                <div>
+                                    <div class="check-option-label">&#128230; 存储过程比对</div>
+                                    <div class="check-option-desc">过程列表一致性</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="section-title">高级选项</div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">批次大小（每批处理行数）</label>
+                            <input type="number" class="form-control" id="batchSize" value="1000" min="100" max="10000" step="100">
+                        </div>
+                    </div>
+
+                    <div class="nav-btn-row">
+                        <button class="btn btn-outline-secondary px-4" onclick="goStep(2, 1)">&#8592; 上一步</button>
+                        <button class="btn btn-primary px-4" onclick="goStep(2, 3)">下一步：选择表范围 &#8594;</button>
+                    </div>
+                </div>
+
+                <!-- ===== Step 3: Table Selection ===== -->
+                <div id="panel3" class="step-panel">
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div>
+                            <div class="section-title mb-0">表范围选择</div>
+                            <small class="text-muted">默认比对新旧库共有表，可自行勾选</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadTableList()">
+                            &#8635; 刷新表列表
+                        </button>
+                    </div>
+
+                    <ul class="nav nav-tabs mb-3" id="tableTabNav">
+                        <li class="nav-item">
+                            <button class="nav-link active" onclick="switchTableTab('all', this)">全部共有表（推荐）</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" onclick="switchTableTab('select', this)">手动勾选</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" onclick="switchTableTab('text', this)">文本输入</button>
+                        </li>
+                    </ul>
+
+                    <div id="tableTab-all">
+                        <div class="alert alert-info mb-0">
+                            <strong>&#10003; 比对全部共有表</strong>&ensp;自动发现新旧库中共同存在的表，适合全量迁移验证。
+                        </div>
+                        <div class="mt-3">
+                            <label class="form-label">排除的表（可选，逗号分隔，支持通配符 %）</label>
+                            <input type="text" class="form-control" id="excludeTablesAll" placeholder="例如：temp_%,log_%,bak_%">
+                        </div>
+                    </div>
+
+                    <div id="tableTab-select" style="display:none;">
+                        <div id="tableCompareInfo" class="alert alert-info mb-2" style="display:none;">
+                            <small>源库共 <strong id="srcTableCount">-</strong> 张表，目标库共 <strong id="tgtTableCount">-</strong> 张表，共有 <strong id="commonTableCount">-</strong> 张，默认全选</small>
+                        </div>
+                        <div id="tableListWrap">
+                            <div class="spinner-wrap">
+                                <div class="spinner-ring"></div>
+                                <p class="text-muted mt-2" style="font-size:.82rem;">正在获取新旧库表列表，请确保数据源已选择...</p>
+                            </div>
+                        </div>
+                        <div class="mt-2 text-muted" style="font-size:.78rem;">
+                            已选择 <strong id="selectedTableCount" style="color:var(--color-primary);">0</strong> 张表
+                        </div>
+                    </div>
+
+                    <div id="tableTab-text" style="display:none;">
+                        <div class="mb-3">
+                            <label class="form-label">包含的表（逗号分隔）</label>
+                            <textarea class="form-control" id="includeTablesText" rows="3"
+                                      placeholder="user_info,order_info,product_detail"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">排除的表（逗号分隔，支持通配符 %）</label>
+                            <textarea class="form-control" id="excludeTablesText" rows="2"
+                                      placeholder="temp_%,log_%"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="nav-btn-row">
+                        <button class="btn btn-outline-secondary px-4" onclick="goStep(3, 2)">&#8592; 上一步</button>
+                        <button class="btn btn-primary px-4" onclick="goStep(3, 4)">下一步：确认配置 &#8594;</button>
+                    </div>
+                </div>
+
+                <!-- ===== Step 4: Confirm ===== -->
+                <div id="panel4" class="step-panel">
+                    <div id="confirmSummary"></div>
+
+                    <div class="nav-btn-row">
+                        <button class="btn btn-outline-secondary px-4" onclick="goStep(4, 3)">&#8592; 上一步</button>
+                        <button class="btn btn-success px-5 fw-bold" onclick="submitTask()" id="submitBtn">
+                            &#128640; 立即执行比对
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 历史任务列表 -->
+    <div class="card mt-4" style="box-shadow: var(--shadow-md);">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0 fw-bold">&#128196; 历史比对任务</h5>
+                <small class="text-muted">最近的任务记录，可快速重新执行</small>
+            </div>
+            <a href="/report/list" class="btn btn-sm btn-outline-primary">查看全部 &#8594;</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table mb-0" id="historyTable">
+                    <thead>
+                        <tr>
+                            <th style="width:55px;">ID</th>
+                            <th>任务名称</th>
+                            <th style="width:90px;">状态</th>
+                            <th style="width:130px;">创建时间</th>
+                            <th style="width:200px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">
+                                <span class="spinner-ring d-inline-block" style="width:20px;height:20px;border-width:2px;"></span>
+                                加载中...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ReExecute from history modal -->
+    <div class="modal fade" id="histReExecModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-primary">
+                    <h6 class="modal-title fw-bold text-primary">&#8635; 基于历史任务重新执行</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" style="font-size:.88rem;">
+                    <p class="mb-2">将使用 <strong id="histReExecTaskName" style="color:var(--color-primary);"></strong> 的配置创建新的比对任务。</p>
+                    <small class="text-muted">会自动跳转至进度页面查看执行情况。</small>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-primary btn-sm" onclick="confirmHistReExec()">&#8635; 开始重新执行</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        // ===== 历史任务列表 =====
+        var histReExecId = null;
+        var histReExecModal = null;
+
+        $(function() {
+            histReExecModal = new bootstrap.Modal(document.getElementById('histReExecModal'));
+            loadHistoryTasks();
+            renderDataSourceList();
+            // 检查是否复制编辑模式
+            initEditMode();
+            // 数据源渲染后高亮选中卡片
+            setTimeout(function() { highlightDsCards(); }, 300);
+            $.getJSON('/settings/api').done(function(res) {
+                if (res && res.success && res.settings && res.settings.compareBatchSize) {
+                    $('#batchSize').val(res.settings.compareBatchSize);
+                }
+            });
+        });
+
+        function loadHistoryTasks() {
+            $.get('/api/tasks', function(res) {
+                if (!res || !res.tasks || res.tasks.length === 0) {
+                    $('#historyTableBody').html('<tr><td colspan="5" class="text-center py-4 text-muted">暂无历史任务记录</td></tr>');
+                    return;
+                }
+                var html = '';
+                res.tasks.forEach(function(t) {
+                    var scMap = {PENDING:'sp-muted',RUNNING:'sp-running',SUCCESS:'sp-success',FAILED:'sp-danger',CANCELLED:'sp-muted'};
+                    var sc = scMap[t.status] || 'sp-muted';
+                    var ct = t.createTime ? formatDate(new Date(t.createTime)) : '-';
+                    var ops = '';
+                    if (t.status === 'RUNNING' || t.status === 'PENDING') {
+                        ops = '<a href="/compare/progress/' + t.id + '" class="btn btn-sm btn-outline-primary btn-action">查看进度</a>';
+                    } else if (t.status === 'SUCCESS') {
+                        ops = '<a href="/compare/report/' + t.id + '" class="btn btn-sm btn-success btn-action me-1">查看报告</a>' +
+                              '<button class="btn btn-sm btn-outline-primary btn-action me-1" onclick="histReExec(' + t.id + ',\'' + escHtml(t.taskName||'') + '\')">重新执行</button>' +
+                              '<a href="?editTaskId=' + t.id + '" class="btn btn-sm btn-outline-info btn-action">复制编辑</a>';
+                    } else {
+                        ops = '<button class="btn btn-sm btn-outline-primary btn-action me-1" onclick="histReExec(' + t.id + ',\'' + escHtml(t.taskName||'') + '\')">重新执行</button>' +
+                              '<a href="?editTaskId=' + t.id + '" class="btn btn-sm btn-outline-info btn-action">复制编辑</a>';
+                    }
+                    html += '<tr class="history-row">' +
+                        '<td class="text-muted" style="font-size:.78rem;">#' + t.id + '</td>' +
+                        '<td><span class="fw-bold">' + escHtml(t.taskName || '-') + '</span></td>' +
+                        '<td><span class="status-pill ' + sc + '">' + t.status + '</span></td>' +
+                        '<td style="font-size:.78rem;color:var(--color-text-muted);">' + ct + '</td>' +
+                        '<td>' + ops + '</td>' +
+                        '</tr>';
+                });
+                $('#historyTableBody').html(html);
+            }).fail(function() {
+                $('#historyTableBody').html('<tr><td colspan="5" class="text-center py-4 text-muted">加载失败</td></tr>');
+            });
+        }
+
+        function histReExec(id, name) {
+            histReExecId = id;
+            $('#histReExecTaskName').text(name);
+            histReExecModal.show();
+        }
+
+        function confirmHistReExec() {
+            histReExecModal.hide();
+            $.post('/compare/reExecute/' + histReExecId, {}, function(res) {
+                if (res.success) {
+                    showToast('任务已提交，正在跳转...', 'success');
+                    setTimeout(function() { window.location.href = '/compare/progress/' + res.taskId; }, 800);
+                } else {
+                    showToast('重新执行失败: ' + res.msg, 'danger');
+                }
+            }).fail(function() {
+                showToast('请求失败，请重试', 'danger');
+            });
+        }
+    </script>
+
+    <script th:inline="javascript">
+        // ===== 比对配置 =====
+        var allDataSources = /*[[${dataSources}]]*/ [];
+        var selectedSourceId = null;
+        var selectedTargetId = null;
+        var selectedMode = 'FULL';
+        var currentTableTab = 'all';
+        var selectedTables = [];
+        var loadedTables = [];
+        // schema/catalog 选择
+        var srcCatalog = null, srcSchema = null;
+        var tgtCatalog = null, tgtSchema = null;
+        var sourceSchemas = [], targetSchemas = [];
+        // 复制编辑模式
+        var editTaskId = null;
+        var editSourceSchema = null;
+        var editTargetSchema = null;
+        var editSchemaMapping = '';
+
+        function showToast(msg, type) {
+            type = type || 'info';
+            var el = $('<div class="toast-msg toast-' + type + '">' + msg + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, 3000);
+        }
+
+
+
+        function renderDataSourceList() {
+            if (!allDataSources || allDataSources.length === 0) {
+                var empty = '<div class="alert alert-warning" style="font-size:.82rem;">暂无数据源，请先<a href="/datasource/add" class="fw-bold">添加数据源</a></div>';
+                $('#sourceDsList').html(empty);
+                $('#targetDsList').html(empty);
+                return;
+            }
+            var sourceHtml = '', targetHtml = '';
+            allDataSources.forEach(function(ds) {
+                var card = '<div class="ds-card mb-2" data-id="' + ds.id + '">' +
+                    '<div class="d-flex align-items-center justify-content-between">' +
+                    '<div><div class="ds-name">' + escHtml(ds.name) + '</div>' +
+                    '<div class="ds-meta">' + escHtml(ds.url || '') + '</div></div>' +
+                    '<span class="badge bg-secondary ds-type-badge">' + escHtml(ds.dbType || '') + '</span>' +
+                    '</div></div>';
+                sourceHtml += card;
+                targetHtml += card;
+            });
+            $('#sourceDsList').html(sourceHtml);
+            $('#targetDsList').html(targetHtml);
+            $('#sourceDsList .ds-card').on('click', function() {
+                $('#sourceDsList .ds-card').removeClass('selected');
+                $(this).addClass('selected');
+                selectedSourceId = $(this).data('id');
+                loadSchemasForComp(selectedSourceId, 'source');
+            });
+            $('#targetDsList .ds-card').on('click', function() {
+                $('#targetDsList .ds-card').removeClass('selected');
+                $(this).addClass('selected');
+                selectedTargetId = $(this).data('id');
+                loadSchemasForComp(selectedTargetId, 'target');
+            });
+        }
+
+        function escHtml(str) { return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+        function getSchemaDisplay(side) {
+            var schemas = side === 'source' ? (srcCatalog || srcSchema) : (tgtCatalog || tgtSchema);
+            if (!schemas) return '<span class="badge bg-info text-dark">全部</span>';
+            var parts = schemas.split(',');
+            if (parts.length > 3) return '<span class="badge bg-info text-dark">' + parts.length + ' 个库</span>';
+            return '<span class="badge bg-info text-dark">' + escHtml(schemas) + '</span>';
+        }
+
+        // ===== Schema/Catalog 选择（比对页面 - 多选复选框） =====
+        function loadSchemasForComp(dsId, side) {
+            $.get('/viewer/schemas/' + dsId, function(res) {
+                if (!res.success || !res.schemas || res.schemas.length <= 1) {
+                    if (side === 'source') { $('#sourceSchemaSelector').hide(); sourceSchemas = []; resetSchema('source'); }
+                    else { $('#targetSchemaSelector').hide(); targetSchemas = []; resetSchema('target'); }
+                    loadedTables = []; // 数据源变了，重置表列表
+                    return;
+                }
+                var schemas = res.schemas;
+                var type = schemas.length > 0 ? (schemas[0].type || 'schema') : 'schema';
+                var html = '';
+                schemas.forEach(function(s, i) {
+                    var defClass = '';
+                    if (side === 'source' && editSourceSchema && editSourceSchema.split(',').indexOf(s.name) >= 0) defClass = ' checked';
+                    else if (side === 'target' && editTargetSchema && editTargetSchema.split(',').indexOf(s.name) >= 0) defClass = ' checked';
+                    else if (!editSourceSchema && !editTargetSchema) {
+                        defClass = SchemaMappingUi.defaultSchemaChecked(s.name) ? ' checked' : '';
+                    } else if (s.isDefault || i === 0) defClass = ' checked';
+                    html += '<label><input type="checkbox" value="' + escHtml(s.name) + '" data-type="' + (s.type||'schema') + '" onchange="onSchemaCheckChange(\'' + side + '\')"' + defClass + '><span>' + escHtml(s.name) + (s.isDefault ? ' <small>(默认)</small>' : '') + '</span></label>';
+                });
+                if (side === 'source') {
+                    sourceSchemas = schemas;
+                    $('#sourceSchemaCheckList').html(html);
+                    $('#sourceSchemaSelector').show();
+                    onSchemaCheckChange('source');
+                } else {
+                    targetSchemas = schemas;
+                    $('#targetSchemaCheckList').html(html);
+                    $('#targetSchemaSelector').show();
+                    onSchemaCheckChange('target');
+                }
+            }).fail(function() {
+                if (side === 'source') { $('#sourceSchemaSelector').hide(); }
+                else { $('#targetSchemaSelector').hide(); }
+            });
+        }
+
+        function schemaCheckAll(side, check) {
+            var listId = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            $(listId + ' input[type="checkbox"]').prop('checked', check);
+            onSchemaCheckChange(side);
+        }
+
+        function onSchemaCheckChange(side) {
+            var listId = side === 'source' ? '#sourceSchemaCheckList' : '#targetSchemaCheckList';
+            var checked = $(listId + ' input[type="checkbox"]:checked').map(function() { return $(this).val(); }).get();
+            if (side === 'source') {
+                if (checked.length === 0 || checked.length === ($('#sourceSchemaCheckList input').length)) {
+                    // 全不选 或 全选 = 全部（不限定）
+                    srcCatalog = null; srcSchema = null;
+                } else {
+                    srcCatalog = checked.join(','); srcSchema = null;
+                }
+            } else {
+                if (checked.length === 0 || checked.length === ($('#targetSchemaCheckList input').length)) {
+                    tgtCatalog = null; tgtSchema = null;
+                } else {
+                    tgtCatalog = checked.join(','); tgtSchema = null;
+                }
+            }
+            loadedTables = []; // 换了库，重置表列表
+            renderSchemaMapping(); // 检查是否需要显示库名映射
+        }
+
+        function renderSchemaMapping() {
+            SchemaMappingUi.renderSchemaMappingPanel({
+                srcChecked: $('#sourceSchemaCheckList input[type="checkbox"]:checked').map(function() { return $(this).val(); }).get(),
+                tgtChecked: $('#targetSchemaCheckList input[type="checkbox"]:checked').map(function() { return $(this).val(); }).get(),
+                allSrc: $('#sourceSchemaCheckList input[type="checkbox"]').map(function() { return $(this).val(); }).get(),
+                allTgt: $('#targetSchemaCheckList input[type="checkbox"]').map(function() { return $(this).val(); }).get(),
+                savedMapping: editSchemaMapping || '',
+                escHtml: escHtml
+            });
+        }
+
+        function getSchemaMapping() {
+            return SchemaMappingUi.getSchemaMapping();
+        }
+
+        function findSchemaIndex(schemas, schemaName) {
+            for (var i = 0; i < schemas.length; i++) {
+                if (schemas[i].name === schemaName) return i;
+            }
+            return -1;
+        }
+
+        function resetSchema(side) {
+            if (side === 'source') { srcCatalog = null; srcSchema = null; }
+            else { tgtCatalog = null; tgtSchema = null; }
+        }
+
+        // ===== 复制编辑：从 URL 获取 taskId 并加载配置 =====
+        function initEditMode() {
+            var params = new URLSearchParams(window.location.search);
+            editTaskId = params.get('editTaskId');
+            if (!editTaskId) return;
+            // 加载任务配置
+            $.get('/compare/config/' + editTaskId, function(res) {
+                if (!res.success) { showToast('加载任务配置失败: ' + (res.msg||'未知错误'), 'danger'); return; }
+                $('#taskName').val(res.taskName || '');
+                selectedSourceId = res.sourceDataSourceId;
+                selectedTargetId = res.targetDataSourceId;
+                selectedMode = res.compareMode || 'FULL';
+                editSourceSchema = res.sourceSchema || null;
+                editTargetSchema = res.targetSchema || null;
+                editSchemaMapping = res.schemaMapping || '';
+                // 比对模式卡片
+                $('.mode-card').removeClass('selected');
+                $('.mode-card[data-mode="' + selectedMode + '"]').addClass('selected');
+                if (selectedMode === 'SAMPLE') {
+                    $('#sampleRateWrap').show();
+                    $('#sampleRateSlider').val((res.sampleRate||0.1)*100);
+                    $('#sampleRateVal').text(((res.sampleRate||0.1)*100)+'%');
+                    $('#sampleRate').val((res.sampleRate||0.1)*100);
+                }
+                // 比对内容
+                $('#compareSchema').prop('checked', res.compareSchema);
+                $('#compareIndex').prop('checked', res.compareIndex);
+                $('#compareCount').prop('checked', res.compareCount);
+                $('#compareData').prop('checked', res.compareData);
+                $('#compareFunction').prop('checked', res.compareFunction);
+                $('#compareProcedure').prop('checked', res.compareProcedure);
+                // 表范围
+                if (res.includeTables) {
+                    switchTableTab('text', document.getElementById('tabText'));
+                    $('#includeTablesText').val(res.includeTables);
+                }
+                if (res.excludeTables) $('#excludeTablesAll').val(res.excludeTables || '');
+                // 高亮选中的数据源卡片
+                highlightDsCards();
+                showToast('已加载任务配置，可修改后重新执行', 'info');
+            }).fail(function() { showToast('加载任务配置失败', 'danger'); });
+        }
+
+        function highlightDsCards() {
+            // 需要在数据源渲染后再高亮，由 renderDataSourceList 后的回调处理
+            if (selectedSourceId) {
+                $('#sourceDsList .ds-card[data-id="' + selectedSourceId + '"]').addClass('selected');
+                loadSchemasForComp(selectedSourceId, 'source');
+            }
+            if (selectedTargetId) {
+                $('#targetDsList .ds-card[data-id="' + selectedTargetId + '"]').addClass('selected');
+                loadSchemasForComp(selectedTargetId, 'target');
+            }
+        }
+
+        var panelTitles = {
+            1: ['选择数据源', '配置源数据库和目标数据库连接'],
+            2: ['比对配置', '选择比对模式和比对内容'],
+            3: ['选择表范围', '指定需要比对的表，默认全部'],
+            4: ['确认并执行', '确认配置后开始执行比对任务']
+        };
+
+        function goStep(from, to) {
+            if (to > from && !validateStep(from)) return;
+            $('#panel' + from).removeClass('active');
+            $('#panel' + to).addClass('active');
+            for (var i = 1; i <= 4; i++) {
+                var $ws = $('#wizStep' + i);
+                $ws.removeClass('active completed');
+                if (i < to) $ws.addClass('completed');
+                if (i === to) $ws.addClass('active');
+            }
+            $('[id^=wizStep]').find('.step-circle').each(function() {
+                var stepNum = parseInt($(this).closest('[id^=wizStep]').attr('id').replace('wizStep', ''));
+                $(this).html(stepNum < to ? '&#10003;' : stepNum);
+            });
+            $('#stepCounter').text('步骤 ' + to + ' / 4');
+            $('#panelTitle').text(panelTitles[to][0]);
+            $('#panelSubtitle').text(panelTitles[to][1]);
+            if (to === 3 && currentTableTab === 'select') { loadTableList(); }
+            if (to === 4) { renderConfirm(); }
+        }
+
+        function validateStep(step) {
+            if (step === 1) {
+                var name = $('#taskName').val().trim();
+                if (!name) { $('#taskName').addClass('is-invalid'); showToast('请输入任务名称', 'danger'); return false; }
+                $('#taskName').removeClass('is-invalid');
+                if (!selectedSourceId) { showToast('请选择源数据源', 'danger'); return false; }
+                if (!selectedTargetId) { showToast('请选择目标数据源', 'danger'); return false; }
+                if (selectedSourceId === selectedTargetId) { showToast('源数据源和目标数据源不能相同', 'danger'); return false; }
+                if (!SchemaMappingUi.validateSchemaMapping()) {
+                    showToast('请为每个源库选择目标库（库名映射）', 'danger'); return false;
+                }
+            }
+            if (step === 2) {
+                var any = $('#compareSchema,#compareIndex,#compareCount,#compareData,#compareFunction,#compareProcedure').is(':checked');
+                if (!any) { showToast('请至少选择一种比对内容', 'danger'); return false; }
+            }
+            return true;
+        }
+
+        function selectMode(el) {
+            $('.mode-card').removeClass('selected');
+            $(el).addClass('selected');
+            selectedMode = $(el).data('mode');
+            if (selectedMode === 'SAMPLE') { $('#sampleRateWrap').slideDown(200); }
+            else { $('#sampleRateWrap').slideUp(200); }
+        }
+
+        function switchTableTab(tab, btn) {
+            currentTableTab = tab;
+            $('#tableTab-all, #tableTab-select, #tableTab-text').hide();
+            $('#tableTab-' + tab).show();
+            $('#tableTabNav .nav-link').removeClass('active');
+            $(btn).addClass('active');
+            if (tab === 'select' && loadedTables.length === 0) { loadTableList(); }
+        }
+
+        function loadTableList() {
+            if (!selectedSourceId || !selectedTargetId) {
+                showToast('请先选择新旧数据源', 'danger'); return;
+            }
+            $('#tableListWrap').html('<div class="spinner-wrap"><div class="spinner-ring"></div><p class="text-muted mt-2" style="font-size:.82rem;">正在获取新旧库表列表...</p></div>');
+            $.get('/datasource/tables-compare', {
+                sourceId: selectedSourceId, targetId: selectedTargetId,
+                srcCatalog: srcCatalog || '', srcSchema: srcSchema || '',
+                tgtCatalog: tgtCatalog || '', tgtSchema: tgtSchema || ''
+            }, function(res) {
+                if (res.success) {
+                    var commonTables = res.commonTables || [];
+                    $('#srcTableCount').text(res.onlySourceCount + commonTables.length);
+                    $('#tgtTableCount').text(res.onlyTargetCount + commonTables.length);
+                    $('#commonTableCount').text(commonTables.length);
+                    $('#tableCompareInfo').show();
+                    // 判断是否为多库模式（表名含 :: 分隔符）
+                    var isMultiSchema = commonTables.some(function(t) { return t.indexOf('::') >= 0; });
+                    $.get('/datasource/tables/' + selectedSourceId, {
+                        catalog: srcCatalog || '', schema: srcSchema || ''
+                    }, function(srcRes) {
+                        var srcTableMap = {};
+                        if (srcRes.success && srcRes.tables) {
+                            srcRes.tables.forEach(function(t) {
+                                var key = t.name.toLowerCase();
+                                srcTableMap[key] = t.rowCount;
+                            });
+                        }
+                        loadedTables = commonTables.map(function(name) {
+                            var displayName = name;
+                            var schemaName = '';
+                            if (isMultiSchema && name.indexOf('::') >= 0) {
+                                var parts = name.split('::', 2);
+                                schemaName = parts[0];
+                                displayName = parts[1];
+                            }
+                            var lookupKey = isMultiSchema && name.indexOf('::') >= 0
+                                ? name.substring(name.indexOf('::') + 2).toLowerCase()
+                                : name.toLowerCase();
+                            return {
+                                name: name,
+                                displayName: displayName,
+                                schemaName: schemaName,
+                                isMultiSchema: isMultiSchema,
+                                rowCount: srcTableMap[lookupKey] !== undefined ? srcTableMap[lookupKey] : null
+                            };
+                        });
+                        renderTableSelector(loadedTables);
+                    }).fail(function() {
+                        loadedTables = commonTables.map(function(name) {
+                            var parts = name.indexOf('::') >= 0 ? name.split('::', 2) : [null, name];
+                            return { name: name, displayName: parts[1] || parts[0], schemaName: parts[0] || '', isMultiSchema: isMultiSchema, rowCount: null };
+                        });
+                        renderTableSelector(loadedTables);
+                    });
+                    if ((res.onlyInSource && res.onlyInSource.length > 0) || (res.onlyInTarget && res.onlyInTarget.length > 0)) {
+                        var srcOnly = (res.onlyInSource||[]).length, tgtOnly = (res.onlyInTarget||[]).length;
+                        showToast('仅源库有 ' + srcOnly + ' 张表，仅目标库有 ' + tgtOnly + ' 张表，不参与比对', 'info');
+                    }
+                } else {
+                    $('#tableListWrap').html('<div class="alert alert-danger" style="font-size:.82rem;">' + (res.msg || '获取表列表失败') + '</div>');
+                }
+            }).fail(function() {
+                $('#tableListWrap').html('<div class="alert alert-warning" style="font-size:.82rem;">暂不支持在线获取表列表，请使用"文本输入"方式手动填写表名。</div>');
+            });
+        }
+
+        function renderTableSelector(tables) {
+            var toolbar = '<div class="table-select-toolbar">' +
+                '<input type="text" class="form-control form-control-sm" id="tableSearch" placeholder="&#128269; 搜索表名..." style="width:200px;font-size:.8rem;" oninput="filterTables(this.value)">' +
+                '<button class="btn btn-sm btn-outline-primary" onclick="selectAllTables(true)">全选</button>' +
+                '<button class="btn btn-sm btn-outline-secondary" onclick="selectAllTables(false)">全不选</button>' +
+                '<small class="text-muted ms-auto" style="font-size:.75rem;">共 <b>' + tables.length + '</b> 张</small>' +
+                '</div>';
+            var items = tables.map(function(t) {
+                var schemaTag = t.schemaName
+                    ? '<span class="badge bg-secondary me-1" style="font-size:.65rem;font-weight:400;">' + escHtml(t.schemaName) + '</span>'
+                    : '';
+                return '<label class="table-item">' +
+                    '<input type="checkbox" class="table-chk" value="' + escHtml(t.name) + '" checked onchange="updateTableCount()">' +
+                    '<span class="table-item-name">' + schemaTag + escHtml(t.displayName || t.name) + '</span>' +
+                    '<span class="table-item-rows">' + (t.rowCount != null ? t.rowCount.toLocaleString() + ' 行' : '') + '</span>' +
+                    '</label>';
+            }).join('');
+            $('#tableListWrap').html(toolbar + '<div class="table-selector-wrap" id="tableItems">' + items + '</div>');
+            updateTableCount();
+        }
+
+        function filterTables(keyword) {
+            keyword = keyword.toLowerCase();
+            $('#tableItems .table-item').each(function() {
+                var name = $(this).find('.table-item-name').text().toLowerCase();
+                $(this).toggle(name.indexOf(keyword) >= 0);
+            });
+        }
+
+        function selectAllTables(val) {
+            $('#tableItems .table-chk:visible').prop('checked', val);
+            updateTableCount();
+        }
+
+        function updateTableCount() {
+            selectedTables = $('#tableItems .table-chk:checked').map(function() { return $(this).val(); }).get();
+            $('#selectedTableCount').text(selectedTables.length);
+        }
+
+        function renderConfirm() {
+            var src = allDataSources.find(function(d) { return d.id == selectedSourceId; });
+            var tgt = allDataSources.find(function(d) { return d.id == selectedTargetId; });
+            var modeLabel = { FULL: '&#128269; 全量比对', SAMPLE: '&#127919; 抽样比对', INCREMENTAL: '&#9201; 增量比对' };
+            var tabLabel = currentTableTab === 'all' ? '全部表' : currentTableTab === 'select' ? '手动选择 (' + selectedTables.length + ' 张)' : '文本指定';
+
+            var content = [];
+            content.push(['任务名称', escHtml($('#taskName').val())]);
+            content.push(['源数据源', src ? escHtml(src.name) + ' <span class="badge bg-secondary">' + escHtml(src.dbType) + '</span>' : '-']);
+            content.push(['目标数据源', tgt ? escHtml(tgt.name) + ' <span class="badge bg-secondary">' + escHtml(tgt.dbType) + '</span>' : '-']);
+            content.push(['源库', getSchemaDisplay('source')]);
+            content.push(['目标库', getSchemaDisplay('target')]);
+            content.push(['比对模式', '<span class="badge-mode bg-primary text-white">' + modeLabel[selectedMode] + '</span>']);
+            if (selectedMode === 'SAMPLE') { content.push(['抽样比例', $('#sampleRateVal').text()]); }
+
+            var contentFlags = [];
+            if ($('#compareSchema').is(':checked')) contentFlags.push('<span class="badge bg-info text-dark me-1">表结构</span>');
+            if ($('#compareIndex').is(':checked')) contentFlags.push('<span class="badge bg-info text-dark me-1">索引</span>');
+            if ($('#compareCount').is(':checked')) contentFlags.push('<span class="badge bg-info text-dark me-1">数据量</span>');
+            if ($('#compareData').is(':checked')) contentFlags.push('<span class="badge bg-info text-dark me-1">数据内容</span>');
+            if ($('#compareFunction').is(':checked')) contentFlags.push('<span class="badge bg-info text-dark me-1">函数</span>');
+            if ($('#compareProcedure').is(':checked')) contentFlags.push('<span class="badge bg-info text-dark me-1">存储过程</span>');
+            content.push(['比对内容', contentFlags.join('')]);
+            content.push(['表范围', tabLabel]);
+            content.push(['批次大小', $('#batchSize').val() + ' 条/批']);
+
+            var html = '<div class="alert alert-success mb-4"><strong>&#10003; 配置检查通过，确认无误后点击"立即执行"</strong></div>';
+            html += '<div class="card border-0 bg-light p-3 rounded-3">';
+            content.forEach(function(row) {
+                html += '<div class="confirm-row"><div class="confirm-label">' + row[0] + '</div><div class="confirm-value">' + row[1] + '</div></div>';
+            });
+            html += '</div>';
+            $('#confirmSummary').html(html);
+        }
+
+        function buildTableFilters() {
+            var inc = '', exc = '';
+            if (currentTableTab === 'all') { exc = $('#excludeTablesAll').val().trim(); }
+            else if (currentTableTab === 'select') { inc = selectedTables.join(','); }
+            else { inc = $('#includeTablesText').val().trim(); exc = $('#excludeTablesText').val().trim(); }
+            return { includeTables: inc, excludeTables: exc };
+        }
+
+        function submitTask() {
+            var filters = buildTableFilters();
+            var task = {
+                taskName: $('#taskName').val().trim(),
+                sourceDataSourceId: selectedSourceId,
+                targetDataSourceId: selectedTargetId,
+                compareMode: selectedMode,
+                sampleRate: parseFloat($('#sampleRate').val()) / 100,
+                compareSchema: $('#compareSchema').is(':checked'),
+                compareIndex: $('#compareIndex').is(':checked'),
+                compareCount: $('#compareCount').is(':checked'),
+                compareData: $('#compareData').is(':checked'),
+                compareFunction: $('#compareFunction').is(':checked'),
+                compareProcedure: $('#compareProcedure').is(':checked'),
+                batchSize: parseInt($('#batchSize').val()),
+                includeTables: filters.includeTables,
+                excludeTables: filters.excludeTables,
+                sourceSchema: srcCatalog || srcSchema || '',
+                targetSchema: tgtCatalog || tgtSchema || '',
+                schemaMapping: getSchemaMapping()
+            };
+            $('#submittingOverlay').show();
+            $('#submitBtn').prop('disabled', true);
+            $.ajax({
+                url: '/compare/execute',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(task),
+                success: function(res) {
+                    $('#submittingOverlay').hide();
+                    if (res.success) {
+                        showToast('任务已启动，正在跳转...', 'success');
+                        setTimeout(function() { window.location.href = '/compare/progress/' + res.taskId; }, 800);
+                    } else {
+                        $('#submitBtn').prop('disabled', false);
+                        showToast(res.msg, 'danger');
+                    }
+                },
+                error: function() {
+                    $('#submittingOverlay').hide();
+                    $('#submitBtn').prop('disabled', false);
+                    showToast('请求失败，请检查网络连接', 'danger');
+                }
+            });
+        }
+
+        $('#taskName').on('input', function() { $(this).removeClass('is-invalid'); });
+
+        function pad(n) { return n < 10 ? '0' + n : '' + n; }
+        function formatDate(d) {
+            return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
+                   pad(d.getHours()) + ':' + pad(d.getMinutes());
+        }
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

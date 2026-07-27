@@ -1,0 +1,771 @@
+{
+  "version": "1.2.76",
+  "frontendVersion": "1.2.76",
+  "backendVersion": "1.2.76",
+  "schemaVersion": 6,
+  "releases": [
+    {
+      "version": "1.2.76",
+      "date": "2026-07-23",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "重新执行任务名优化：去掉层层叠加的「重新执行」后缀，改为「原名 - 重新执行 MM-dd HH:mm」"
+      ]
+    },
+    {
+      "version": "1.2.75",
+      "date": "2026-07-23",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "比对报告：增加「重新执行」按钮，基于当前任务配置创建新比对并跳转进度页；补充 reExecute API 单测"
+      ]
+    },
+    {
+      "version": "1.2.74",
+      "date": "2026-07-23",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "比对报告条数差异：支持「查看差异数据」，按主键归并展示仅源库/仅目标库的具体行；补充 row-diff API 与单测"
+      ]
+    },
+    {
+      "version": "1.2.73",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "数据浏览：全屏工作区布局，去掉大标题区；表格区域占满剩余视口并内部滚动，底部分页初屏固定可见"
+      ]
+    },
+    {
+      "version": "1.2.72",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "新增登录认证：未登录禁止访问任何页面/API/报告；默认复杂密码见 application.yml（db-compare.security），支持退出登录"
+      ]
+    },
+    {
+      "version": "1.2.71",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 清表新增 DATAX_DELETE / DATAX_TRUNCATE：由 writer.preSql 整表删除或 TRUNCATE，跳过应用侧慢分批 DELETE"
+      ]
+    },
+    {
+      "version": "1.2.70",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复 DataX No database selected：JDBC URL 强制写入表所在库名（含 host:port?params 形态），作业表名带 catalog 双保险"
+      ]
+    },
+    {
+      "version": "1.2.69",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 写入模式可选 insert/replace；大表可「不清空 + replace」跳过慢 DELETE（REPLACE INTO 覆盖已有主键，不删目标多余行）"
+      ]
+    },
+    {
+      "version": "1.2.68",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "清表分批 DELETE 遇锁等待(1205)：保持≥5万/批并退避重试；同目标表清表互斥（避免并行 DELETE LIMIT 争行锁）；友好错误标明目标表被锁"
+      ]
+    },
+    {
+      "version": "1.2.67",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 日志监控：解析 StandAloneJobContainerCommunicator 进度与 JobContainer 摘要，写入【DataX进度】并驱动看门狗/当前表状态；过滤噪音日志，结束后回填传输行数"
+      ]
+    },
+    {
+      "version": "1.2.66",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复 DataX 同步被「90s 无心跳」误杀：等待进程期间持续看门狗心跳，日志线程显式 touch；大表按超大表放宽时限"
+      ]
+    },
+    {
+      "version": "1.2.65",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 清表策略：默认 AUTO（先 TRUNCATE，无权限则分批 DELETE）；可选仅 DELETE/仅 TRUNCATE/不清空；脚本 CLEAR_MODE=DELETE 支持无 DDL 场景"
+      ]
+    },
+    {
+      "version": "1.2.64",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 安装目录支持常见嵌套路径（…/datax/datax/bin）；路径错误时列出已尝试位置"
+      ]
+    },
+    {
+      "version": "1.2.63",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "新增同步模式「DataX 工具同步」：参数设置配置 DataX 安装目录后，可调用本机 datax.py 做 TRUNCATE+多通道写入；提供 customer_payments / gcoll_tasks_func 作业模板（scripts/datax）"
+      ]
+    },
+    {
+      "version": "1.2.62",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步心跳同时显示均速与近段速度，便于识别大表写入随二级索引膨胀变慢；超大表 DML 全量提示可改用 DDL 全量"
+      ]
+    },
+    {
+      "version": "1.2.61",
+      "date": "2026-07-22",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "超大表比对：任一侧≥100万行时跳过全表 MD5 Hash 与逐行详情，仅做条数/金额聚合；表开始即刷新进度，避免 UI 长时间停在「初始化 0%」"
+      ]
+    },
+    {
+      "version": "1.2.60",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "超大表 INSERT 参考 DataX：读线程→有界通道→写线程流式 batch 写入（估算≥10万或已标超大表）；主键分块与无主键流式均可；读写并行并持续【心跳】"
+      ]
+    },
+    {
+      "version": "1.2.59",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "差异同步改为主键分块比对（源页 INSERT/UPDATE + 目标页删孤儿），避免双端全表 ORDER BY 流式游标首包前无心跳被误杀；≥5万行即放宽看门狗；进度带【心跳】；流式回退亦有定时脉冲"
+      ]
+    },
+    {
+      "version": "1.2.58",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复内网高并行「30s无心跳」批量误杀：等池借连接持续【心跳】；看门狗默认90s/GoldenDB 180s；GoldenDB 并行上限6；池借出超时10s可重试"
+      ]
+    },
+    {
+      "version": "1.2.57",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步/比对强制任务级 Hikari 连接池：表间借还复用，取消写入中周期性 abort 重连；仅协议损坏才剔除；任务成功失败均关闭连接池"
+      ]
+    },
+    {
+      "version": "1.2.56",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复内网启动失败：dataSourceRepository 重复注册；关闭 Boot 默认 JPA 仓库扫描，仓库改名为 datasourceConfigRepository"
+      ]
+    },
+    {
+      "version": "1.2.55",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [
+        "双 JPA 补齐 Spring snake_case 命名策略；独立数据源库自动把错误驼峰列（DBTYPE 等）重命名为 db_type"
+      ],
+      "changes": [
+        "修复启动失败：主库/数据源库 EMF 未用 Spring 命名策略导致 Column metaKey/DB_TYPE not found；启动时自动修复已生成的错误列名"
+      ]
+    },
+    {
+      "version": "1.2.54",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "看门狗恢复普通表 30s/任务 2min；仅超大表(≥100万行估算或已写入)放宽至单表/任务 5min；进度日志带【心跳】证明仍在运行"
+      ]
+    },
+    {
+      "version": "1.2.53",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "千万级表 INSERT：有主键时改 keyset 分块翻页（每页≤5000），协议损坏只重试当前页并可重借源+目标连接；缩小批写切块（看门狗时限见 1.2.54）"
+      ]
+    },
+    {
+      "version": "1.2.52",
+      "date": "2026-07-21",
+      "schemaVersion": 6,
+      "dbChanges": [
+        "数据源配置迁入独立 H2 库 ./data/datasource（与任务库 dbcompare 分离）；首次启动可从旧表按原 ID 自动迁移"
+      ],
+      "changes": [
+        "数据源管理独立为 datasource.mv.db，同步程序到内网时勿覆盖该文件，避免冲掉内网数据源"
+      ]
+    },
+    {
+      "version": "1.2.51",
+      "date": "2026-07-17",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "加固百万级 INSERT：积压≤2000、execute 切块≤1000、包过大/协议异常最多重试 5 次并缩批、定期重借目标连接；单表空闲看门狗改为 5 分钟"
+      ]
+    },
+    {
+      "version": "1.2.50",
+      "date": "2026-07-17",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复一键重同步总表=0：单库枚举裸表名与 include 的 schema::table 无法匹配；匹配规则对齐并禁止空表列表伪装 SUCCESS"
+      ]
+    },
+    {
+      "version": "1.2.49",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复大表同步「刚好停在 10 万行」：借连接时解除 sql_select_limit；读循环心跳；executeBatch 按 5 千行切块；比对分页 offset 改用 long"
+      ]
+    },
+    {
+      "version": "1.2.48",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步看门狗：单表超过 30 秒无进度消息则强制跳过并计失败；整任务超过 2 分钟无消息则判定失败并结束（避免报错后永久卡死）"
+      ]
+    },
+    {
+      "version": "1.2.47",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步任务可临时调整本次连接数（表级并行）：默认与同步表数量一致，大于 20 则等于 20；确认页/配置页可改"
+      ]
+    },
+    {
+      "version": "1.2.46",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复写入批次在 GoldenDB 协议异常（AIOOBE）后整批重试导致 Duplicate entry：已提交子批不重放，重试改用 INSERT IGNORE"
+      ]
+    },
+    {
+      "version": "1.2.45",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步确认页顶部增加「差异同步 / 增量同步 / 数据传输」等可选卡片，模式标签改为中文显示"
+      ]
+    },
+    {
+      "version": "1.2.44",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "新增类 Navicat 模式：数据传输 DATA_TRANSFER（清空后全量写入）、数据同步 DATA_SYNC（按主键 INSERT/UPDATE/DELETE 归并）"
+      ]
+    },
+    {
+      "version": "1.2.43",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "新增同步模式「增量合并 PK_UPSERT」：按主键 UPDATE 已有行 + INSERT 新行（不清空）；MySQL/GoldenDB 使用 ON DUPLICATE KEY UPDATE；适合差异不大的场景"
+      ]
+    },
+    {
+      "version": "1.2.42",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "恢复同步池 rewriteBatchedStatements=true，修复 1.2.37 关闭批量重写后写入仅约数百行/秒的问题；协议异常仍保留丢弃连接+缩批重试"
+      ]
+    },
+    {
+      "version": "1.2.41",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "参数设置页增加 DDL/DML/增量 默认同步模式卡片（与同步配置页一致），新建任务自动带入"
+      ]
+    },
+    {
+      "version": "1.2.40",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复确认页/重同步清空 schemaMapping 后多目标库回退成源库名，导致 DELETE 打到 gcoll_* 而非 prd_gcoll_* 的误报权限问题；补全库名推断与自动映射"
+      ]
+    },
+    {
+      "version": "1.2.39",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步日志明确数据流向（源SELECT→目标DELETE/INSERT），打印实际 SQL；权限错误提示标明发生在目标库、方向未对调"
+      ]
+    },
+    {
+      "version": "1.2.38",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "确认页源/目标库范围改为按待同步表即时渲染，不再卡在「加载中」；远程库名列表后台补充（12s超时）"
+      ]
+    },
+    {
+      "version": "1.2.37",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复 GoldenDB/MySQL 高并发同步时 commit 触发 ArrayIndexOutOfBoundsException（SQLException:null）：同步池关闭 rewriteBatchedStatements、丢弃损坏连接、清表/写入批次自动重试"
+      ]
+    },
+    {
+      "version": "1.2.36",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "确认页源/目标库按待同步表自动匹配，不再默认全选业务库；一键重同步草稿收窄 sourceSchema"
+      ]
+    },
+    {
+      "version": "1.2.35",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步进度左侧成功/失败实时计数；SQLException 展开根因；恢复会话参数失败(null)降噪；一键重同步改为待确认草稿不自动执行；同步报告对齐应用导航与比对报告风格"
+      ]
+    },
+    {
+      "version": "1.2.34",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步进度页实时日志：与后端 SyncTaskRunner 一致输出表级写入/清表/完成行数与速度，增量拉取"
+      ]
+    },
+    {
+      "version": "1.2.33",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "新增「参数设置」模块：可视化配置同步表级并行、批次大小、清表批次、默认同步模式、比对批次；新建任务自动带入"
+      ]
+    },
+    {
+      "version": "1.2.32",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步启动前探测源/目标连接；连接池初始化失败改为友好提示（含 JumpServer/网络不可达），不再只显示 Hikari Failed to initialize pool"
+      ]
+    },
+    {
+      "version": "1.2.31",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [
+        "应用库结构改为 classpath 增量脚本 db/schema/Vn__*.sql（V6：CURRENT_TABLE 对齐进度硬上限）；禁止同步 data/ 覆盖内网数据源"
+      ],
+      "changes": [
+        "应用库增量 DDL：SchemaScriptMigrator 按 schemaVersion 执行脚本，内网只升级程序不拷贝 data/"
+      ]
+    },
+    {
+      "version": "1.2.30",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "进度文案改为摘要展示（并行×N · 当前表阶段 / 最多列 2 张+等N张），硬截断 200 字，不再靠加宽字段兜底超长"
+      ]
+    },
+    {
+      "version": "1.2.29",
+      "date": "2026-07-16",
+      "schemaVersion": 6,
+      "dbChanges": [
+        "dbcompare_sync_task.current_table / dbcompare_task.current_table 加宽至 VARCHAR(2000)"
+      ],
+      "changes": [
+        "修复并行同步误报全部失败：进度字段 CURRENT_TABLE 超长导致 DataException；启动时加宽列，进度保存失败不再中断表同步"
+      ]
+    },
+    {
+      "version": "1.2.28",
+      "date": "2026-07-16",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "所有提示改为友好 UI：原生 alert/confirm 替换为 AppToast / AppConfirm（含同步报告一键提取、比对提取、数据源删除）"
+      ]
+    },
+    {
+      "version": "1.2.27",
+      "date": "2026-07-16",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "修复一键重同步报错 Dangling meta character '?'：Future 异常不再把表名写成问号；表名过滤对 ? 等正则元字符安全转义"
+      ]
+    },
+    {
+      "version": "1.2.26",
+      "date": "2026-07-16",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "根因修复：Bootstrap .modal-dialog 的 pointer-events:none 导致条数弹窗内按钮点击穿透到遮罩（只关窗无请求）；改用 dim-modal-dialog 并强制 pointer-events:auto"
+      ]
+    },
+    {
+      "version": "1.2.25",
+      "date": "2026-07-16",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "修复「提取为同步任务」只关弹窗不请求：停止销毁重建按钮、遮罩误点、弹窗 z-index；内联 onclick + 委托绑定"
+      ]
+    },
+    {
+      "version": "1.2.24",
+      "date": "2026-07-16",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "修复比对报告中文乱码：报告改写 UTF-8，读取兼容历史 GBK 落盘文件",
+        "加固「提取为同步任务」跳转确认页，提取过程中禁止误关弹窗"
+      ]
+    },
+    {
+      "version": "1.2.23",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "演示库升级为多表（PUBLIC+SHOP 约12表）多处条数差异，便于手动验证「提取为同步任务」；删除 data/demo/.demo_version 可重灌",
+        "修复 H2/PostgreSQL 全库比对只扫默认 schema：多 schema 表可正确枚举"
+      ]
+    },
+    {
+      "version": "1.2.22",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "修复比对报告「提取为同步任务」点击无请求：捕获阶段事件委托 + 每次打开报告替换 force 脚本；report.html 不再走裸静态资源"
+      ]
+    },
+    {
+      "version": "1.2.21",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "同步确认/删除/重同步改用应用内确认弹窗，替代浏览器原生 confirm，按钮文案与警示样式更清晰"
+      ]
+    },
+    {
+      "version": "1.2.20",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "同步草稿确认页支持编辑：勾选表、源/目标库名分类、库名映射与前缀快捷映射",
+        "同步列表 PENDING 草稿增加「编辑」；新增 POST /sync/draft/{id} 保存草稿"
+      ]
+    },
+    {
+      "version": "1.2.19",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "条数差异弹窗：「提取为同步任务」移到标题下方顶部工具条，避免滚到列表底部才看到"
+      ]
+    },
+    {
+      "version": "1.2.18",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "修复比对报告提取同步：强制覆盖提取脚本、绝对地址跳转确认页",
+        "同步列表识别 PENDING 草稿（未 start）；API 补充 currentTable/awaitingStart；创建时校验数据源并截断过长字段"
+      ]
+    },
+    {
+      "version": "1.2.17",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "比对报告改为直出 HTML（去掉 iframe），运行时注入顶部导航菜单",
+        "旧报告打开时自动补齐「提取为同步任务」并强制顶层跳转确认页"
+      ]
+    },
+    {
+      "version": "1.2.16",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "比对报告查看改为带首页导航的外壳页（不再裸开静态 HTML）",
+        "条数差异提取同步后使用 top.location 跳转确认页；iframe 内跳转自动提升到顶层"
+      ]
+    },
+    {
+      "version": "1.2.15",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "比对报告「条数差异」可勾选表并提取为同步草稿（不自动运行）",
+        "新增确认页 /sync/confirm/{id} 与 POST /sync/start/{id}，人工确认后再启动同步"
+      ]
+    },
+    {
+      "version": "1.2.14",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "修复比对报告列表被同步报告改造时冲掉的问题：恢复取消/查看报告/重跑/复制编辑/删除等完整操作，同步报告仅作为分栏"
+      ]
+    },
+    {
+      "version": "1.2.13",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "数据源支持导出全量 SQL（GET /datasource/export.sql），落盘 scripts/datasource/full/",
+        "数据源每次增删改自动生成 incremental 增量脚本并更新 CHANGELOG"
+      ]
+    },
+    {
+      "version": "1.2.12",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "补充同步报告/重同步 API 与 SyncService 单测，修复 DatabaseCompareAdapterH2Test 签名漂移",
+        "约定：新增接口必须补测，每次改动后执行 mvn test 全量回归（.cursor/rules/regression-testing.mdc）"
+      ]
+    },
+    {
+      "version": "1.2.11",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [],
+      "changes": [
+        "同步报告支持勾选待重同步表，一键提取并新建同步任务（复用原任务配置）"
+      ]
+    },
+    {
+      "version": "1.2.10",
+      "date": "2026-07-15",
+      "schemaVersion": 5,
+      "dbChanges": [
+        "同步任务表新增 reportPath 字段，持久化同步报告路径"
+      ],
+      "changes": [
+        "同步任务结束后生成 HTML/Markdown 报告（reports/sync/{id}/）",
+        "导航「任务报告」支持比对/同步分栏；同步列表与进度页提供「查看报告」"
+      ]
+    },
+    {
+      "version": "1.2.9",
+      "date": "2026-07-15",
+      "schemaVersion": 4,
+      "dbChanges": [],
+      "changes": [
+        "修复超长 DML 清表场景：每约 10 分钟归还并重借目标连接，连接断开时自动重试一批，减少 wait_timeout / JumpServer 掐断导致写表失败",
+        "借出目标连接后校验 FOREIGN_KEY_CHECKS 是否关闭，便于定位外键阻塞清表"
+      ]
+    },
+    {
+      "version": "1.2.8",
+      "date": "2026-07-14",
+      "schemaVersion": 4,
+      "dbChanges": [],
+      "changes": [
+        "同步改为任务级 Hikari 共享连接池：池上限≈并行度，避免每表新建连接溢出与反复握手",
+        "连接不跨线程共享：worker borrow→独占→close 归还；清表后归还并重新借出（池校验），兼顾 wait_timeout 与连接复用"
+      ]
+    },
+    {
+      "version": "1.2.7",
+      "date": "2026-07-14",
+      "schemaVersion": 4,
+      "dbChanges": [
+        "同步任务 currentTable 字段长度扩展至 800（容纳库名+表序号）"
+      ],
+      "changes": [
+        "同步前后台日志统一打印库名与表序号（如 #12/1045 srcDb.table → tgtDb.table）"
+      ]
+    },
+    {
+      "version": "1.2.6",
+      "date": "2026-07-14",
+      "schemaVersion": 3,
+      "dbChanges": [],
+      "changes": [
+        "同步表结果区分：未同步（未清理）、清理失败（含未清完）、同步失败",
+        "取消任务时中止清表/写入并记入对应状态；进度页支持重新提取信息并一键同步"
+      ]
+    },
+    {
+      "version": "1.2.5",
+      "date": "2026-07-14",
+      "schemaVersion": 3,
+      "dbChanges": [
+        "同步任务表新增 parallelThreads（表级并行数，默认 8）"
+      ],
+      "changes": [
+        "明确表级并行走法：默认 8 路并行；进度显示「并行×N: 表A | 表B」",
+        "配置页可调并行数（1–16）；单表仍为先清后插"
+      ]
+    },
+    {
+      "version": "1.2.4",
+      "date": "2026-07-14",
+      "schemaVersion": 2,
+      "dbChanges": [],
+      "changes": [
+        "修复大表清表后 wait_timeout 导致写入失败：清表不用源连接，清表后重建双端连接再 INSERT",
+        "同步连接延长 session wait_timeout，JDBC socketTimeout=0 避免长事务被误杀"
+      ]
+    },
+    {
+      "version": "1.2.3",
+      "date": "2026-07-14",
+      "schemaVersion": 2,
+      "dbChanges": [],
+      "changes": [
+        "同步模式拆分为三种：DML 全量（默认）、DDL 全量（CREATE LIKE/TRUNCATE）、增量插入",
+        "DDL 全量优先 CREATE LIKE→RENAME，失败回退 TRUNCATE，再失败回退 DML DELETE"
+      ]
+    },
+    {
+      "version": "1.2.2",
+      "date": "2026-07-14",
+      "schemaVersion": 2,
+      "dbChanges": [],
+      "changes": [
+        "同步改为仅 DML：去掉 CREATE/RENAME/DROP 临时表策略，适配无 DDL 权限账号",
+        "全量清表跳过 COUNT，默认大批次分批 DELETE + 批量 INSERT，并保留会话加速参数"
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2026-07-14",
+      "schemaVersion": 2,
+      "dbChanges": [],
+      "changes": [
+        "全量同步改为临时表写入 + RENAME 原子切换，避免无 TRUNCATE/DROP 清表权限时慢 DELETE",
+        "JDBC 开启 rewriteBatchedStatements，写入更高效",
+        "会话级关闭 FOREIGN_KEY_CHECKS / UNIQUE_CHECKS 加速全量写入",
+        "同步任务结束在服务端日志与进度页增加明显 ★★★ 结束标识"
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-07-14",
+      "schemaVersion": 2,
+      "dbChanges": [
+        "同步任务表新增 syncMode（全量/增量）字段",
+        "同步任务表新增 failedTables / successTables / failedTablesCount 字段",
+        "同步任务 currentTable 字段长度扩展至 300",
+        "新增应用元数据表 dbcompare_app_meta（记录 schema 版本）"
+      ],
+      "changes": [
+        "同步任务支持全量（先删再插）与增量插入两种模式",
+        "修复同步「手动选择表」无法加载的问题（多库/空 catalog）",
+        "全量同步清除目标表时关闭外键检查，避免父子表约束失败",
+        "同步失败表单独报告，支持勾选失败表重同步",
+        "同步过程增加清表/写入进度心跳日志与页面实时状态",
+        "数据源管理页 Thymeleaf 表达式修复，页面可正常打开",
+        "JumpServer 堡垒机连接配置面板与 JDBC URL 规范化",
+        "比对/同步库名映射对齐：库对库、表同名；系统库默认不参与映射",
+        "新增应用版本号展示与更新日志（点击版本号可查看）"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-07-13",
+      "schemaVersion": 1,
+      "dbChanges": [
+        "新增同步任务表 dbcompare_sync_task"
+      ],
+      "changes": [
+        "新增数据同步任务功能（DELETE 清表 + 批量 INSERT）",
+        "大表（≥30万行）分批 DELETE",
+        "同步配置向导：数据源 / 库映射 / 表范围",
+        "比对任务多库 catalog 与 Hash 方言分离修复"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-06-16",
+      "schemaVersion": 1,
+      "dbChanges": [],
+      "changes": [
+        "初始版本：数据源管理、全库比对、可视化报告、数据浏览"
+      ]
+    }
+  ]
+}

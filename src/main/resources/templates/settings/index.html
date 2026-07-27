@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>参数设置 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1 flex-wrap">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white active" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="app-container py-4">
+        <div class="page-header mb-3">
+            <div>
+                <h2>参数设置</h2>
+                <p class="text-muted mb-0" style="font-size:.82rem;">全局默认值，新建同步/比对任务时自动带入；单个任务仍可在确认页覆盖。</p>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm" style="border-radius:12px;max-width:960px;">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-2" style="font-size:1rem;">默认同步模式</h5>
+                <p class="text-muted mb-3" style="font-size:.8rem;">新建任务自动带入；确认页仍可改。推荐优先使用类 Navicat 的「数据传输 / 数据同步」。</p>
+                <input type="hidden" id="syncDefaultMode" value="FULL_DML">
+                <div class="row g-3 mb-2" id="syncModeCards">
+                    <div class="col-md-6">
+                        <div class="mode-card" data-mode="DATA_SYNC" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">差异同步</div>
+                            <p class="mode-desc mb-0">按主键比对：新增 INSERT、变更 UPDATE、目标多余 DELETE。</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mode-card" data-mode="PK_UPSERT" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">增量同步</div>
+                            <p class="mode-desc mb-0">不清空；主键存在则 UPDATE，否则 INSERT（不删多余行）。</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mode-card" data-mode="DATA_TRANSFER" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">数据传输</div>
+                            <p class="mode-desc mb-0">清空目标表后全量写入。</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mode-card selected" data-mode="FULL_DML" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">DML 全量</div>
+                            <p class="mode-desc mb-0">分批 DELETE 后批量 INSERT。仅需 DML。</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mode-card" data-mode="FULL_DDL" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">DDL 全量</div>
+                            <p class="mode-desc mb-0">CREATE LIKE / TRUNCATE 路径，需 DDL 权限。</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mode-card" data-mode="INCREMENTAL" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">仅插入</div>
+                            <p class="mode-desc mb-0">不清空；INSERT IGNORE，冲突跳过。</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mode-card" data-mode="DATAX" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">DataX 工具同步</div>
+                            <p class="mode-desc mb-0">调用本机官方 DataX；大表推荐。需配置安装目录。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h5 class="fw-bold mb-3 mt-4" style="font-size:1rem;">DataX（可选）</h5>
+                <p class="text-muted mb-3" style="font-size:.8rem;">选择「DataX 工具同步」时必填。目录内应有 <code>bin/datax.py</code>（解压常为 <code>...\datax\datax</code> 嵌套一层）。详见 <code>scripts/datax/README.md</code>。</p>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-8">
+                        <label class="form-label">DataX 安装目录</label>
+                        <input type="text" class="form-control" id="dataxHome" placeholder="例如 D:\工具\数据库\datax\datax">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">通道数</label>
+                        <input type="number" class="form-control" id="dataxChannel" min="1" max="32" value="8">
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label">DataX 清表策略</label>
+                        <select class="form-select" id="dataxClearMode">
+                            <option value="AUTO">自动：应用侧先 TRUNCATE，失败则分批 DELETE</option>
+                            <option value="DATAX_DELETE">DataX DELETE：writer.preSql 整表删除（跳过慢分批，推荐无 DDL 时）</option>
+                            <option value="DATAX_TRUNCATE">DataX TRUNCATE：writer.preSql（最快，需 DDL）</option>
+                            <option value="DELETE">应用侧分批 DELETE（LIMIT，大表较慢）</option>
+                            <option value="TRUNCATE">应用侧仅 TRUNCATE（需 DDL）</option>
+                            <option value="NONE">不清空（可配合 replace）</option>
+                        </select>
+                        <div class="form-text">「DataX DELETE/TRUNCATE」在 DataX 进程内执行清表，再写入；应用侧分批 DELETE 仅作兼容。</div>
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label">DataX 写入模式</label>
+                        <select class="form-select" id="dataxWriteMode">
+                            <option value="insert">insert：普通插入（清表后全量适用；不清空易主键冲突）</option>
+                            <option value="replace">replace：REPLACE INTO（冲突覆盖已有行；可不消表，不删目标多余行）</option>
+                        </select>
+                        <div class="form-text">大表无 TRUNCATE、DELETE 又太慢时：清表选「不清空」+ 写入选 replace。</div>
+                    </div>
+                </div>
+
+                <h5 class="fw-bold mb-3" style="font-size:1rem;">同步批次与并行</h5>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">表级并行数（全局默认）</label>
+                        <input type="number" class="form-control" id="syncParallelThreads" min="1" max="20" step="1">
+                        <div class="form-text">未知表数时的回退默认（1–20）；确认页默认优先按同步表数</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">批量 INSERT 批次大小</label>
+                        <input type="number" class="form-control" id="syncBatchSize" min="1000" max="100000" step="1000">
+                        <div class="form-text">每批写入行数（1000–100000）</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">清表 DELETE 批次大小</label>
+                        <input type="number" class="form-control" id="syncDeleteBatchSize" min="5000" max="200000" step="1000">
+                        <div class="form-text">仅 DML 全量清表时生效</div>
+                    </div>
+                </div>
+
+                <h5 class="fw-bold mb-3" style="font-size:1rem;">比对默认</h5>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">比对批次大小</label>
+                        <input type="number" class="form-control" id="compareBatchSize" min="100" max="20000" step="100">
+                        <div class="form-text">抽样/数据比对分页批次（100–20000）</div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2 pt-2 border-top">
+                    <button type="button" class="btn btn-primary" id="btnSave">保存</button>
+                    <button type="button" class="btn btn-outline-secondary" id="btnReset">恢复默认</button>
+                    <a class="btn btn-outline-secondary" href="/">返回首页</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        function showToast(msg, type) {
+            if (window.AppToast && AppToast.show) { AppToast.show(msg, type || 'info'); return; }
+            var el = $('<div class="toast-msg toast-' + (type || 'info') + '">' + msg + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, 3000);
+        }
+
+        function selectSyncMode(el) {
+            $('#syncModeCards .mode-card').removeClass('selected');
+            $(el).addClass('selected');
+            $('#syncDefaultMode').val($(el).data('mode') || 'FULL_DML');
+        }
+
+        function applySyncMode(mode) {
+            var m = mode || 'FULL_DML';
+            $('#syncDefaultMode').val(m);
+            $('#syncModeCards .mode-card').removeClass('selected');
+            var $card = $('#syncModeCards .mode-card[data-mode="' + m + '"]');
+            if ($card.length) $card.addClass('selected');
+            else $('#syncModeCards .mode-card[data-mode="FULL_DML"]').addClass('selected');
+        }
+
+        function fillForm(s) {
+            if (!s) return;
+            $('#syncParallelThreads').val(s.syncParallelThreads);
+            $('#syncBatchSize').val(s.syncBatchSize);
+            $('#syncDeleteBatchSize').val(s.syncDeleteBatchSize);
+            applySyncMode(s.syncDefaultMode || 'FULL_DML');
+            $('#compareBatchSize').val(s.compareBatchSize);
+            $('#dataxHome').val(s.dataxHome || '');
+            $('#dataxChannel').val(s.dataxChannel != null ? s.dataxChannel : 8);
+            $('#dataxClearMode').val(s.dataxClearMode || 'AUTO');
+            $('#dataxWriteMode').val(s.dataxWriteMode || 'insert');
+        }
+
+        function collect() {
+            return {
+                syncParallelThreads: parseInt($('#syncParallelThreads').val(), 10),
+                syncBatchSize: parseInt($('#syncBatchSize').val(), 10),
+                syncDeleteBatchSize: parseInt($('#syncDeleteBatchSize').val(), 10),
+                syncDefaultMode: $('#syncDefaultMode').val(),
+                compareBatchSize: parseInt($('#compareBatchSize').val(), 10),
+                dataxHome: ($('#dataxHome').val() || '').trim(),
+                dataxChannel: parseInt($('#dataxChannel').val(), 10),
+                dataxClearMode: $('#dataxClearMode').val() || 'AUTO',
+                dataxWriteMode: $('#dataxWriteMode').val() || 'insert'
+            };
+        }
+
+        function load() {
+            $.getJSON('/settings/api').done(function(res) {
+                if (res.success) fillForm(res.settings);
+                else showToast(res.msg || '加载失败', 'danger');
+            }).fail(function() { showToast('加载失败', 'danger'); });
+        }
+
+        $('#btnSave').on('click', function() {
+            $.ajax({
+                url: '/settings/api',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(collect()),
+                success: function(res) {
+                    if (res.success) {
+                        fillForm(res.settings);
+                        showToast('已保存', 'success');
+                    } else showToast(res.msg || '保存失败', 'danger');
+                },
+                error: function() { showToast('请求失败', 'danger'); }
+            });
+        });
+
+        $('#btnReset').on('click', function() {
+            AppConfirm.open({
+                title: '恢复默认参数',
+                message: '将并发、批次等恢复为系统内置默认值，是否继续？',
+                confirmText: '恢复默认',
+                cancelText: '取消',
+                onConfirm: function() {
+                    $.post('/settings/api/reset').done(function(res) {
+                        if (res.success) {
+                            fillForm(res.settings);
+                            showToast('已恢复默认', 'success');
+                        } else showToast(res.msg || '失败', 'danger');
+                    }).fail(function() { showToast('请求失败', 'danger'); });
+                }
+            });
+        });
+
+        $(load);
+    </script>
+    <script th:src="@{/js/app-toast.js}"></script>
+    <script th:src="@{/js/confirm-dialog.js}"></script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

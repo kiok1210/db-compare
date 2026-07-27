@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据源管理 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <style>
+        .db-type-badge {
+            font-weight: 700;
+            font-size: .68rem;
+            padding: .25em .65em;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+        }
+        .dt-mysql     { background: #dbeafe; color: #1e40af; }
+        .dt-postgresql{ background: #e0e7ff; color: #3730a3; }
+        .dt-oracle    { background: #fee2e2; color: #991b1b; }
+        .dt-sqlserver { background: #e0f2fe; color: #075985; }
+        .dt-goldendb  { background: #fef3c7; color: #92400e; }
+        .dt-h2        { background: #d1fae5; color: #065f46; }
+        .dt-sqlite    { background: #fce7f3; color: #9d174d; }
+
+        .btn-icon-only {
+            width: 32px; height: 32px;
+            padding: 0;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: .85rem;
+            border: 1.5px solid #e2e8f0;
+            background: white;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .btn-icon-only:hover { background: var(--color-primary-bg); border-color: var(--color-primary-light); }
+
+        .action-group { display: flex; gap: 5px; align-items: center; }
+        .btn-icon-only.testing {
+            pointer-events: none;
+            opacity: .6;
+            position: relative;
+        }
+        .btn-icon-only.testing::after {
+            content: '';
+            position: absolute;
+            width: 14px; height: 14px;
+            border: 2px solid var(--color-primary);
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1">
+                <a class="nav-link text-white active" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+                
+            </div>
+        </div>
+    </nav>
+
+    <div class="app-container">
+        <div class="page-header">
+            <div>
+                <h2>数据源管理</h2>
+                <p class="text-muted mb-0" style="font-size:.82rem;">管理数据库连接配置，支持 MySQL / PostgreSQL / Oracle / H2 / SQLite 等</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <a href="/datasource/export.sql" class="btn btn-outline-secondary" title="下载全量 SQL，并刷新 scripts/datasource/full/">
+                    导出 SQL
+                </a>
+                <a href="/datasource/add" class="btn btn-primary">
+                    <span style="font-size:1.1rem;line-height:1;">&#43;</span> 添加数据源
+                </a>
+            </div>
+        </div>
+        <p class="text-muted mb-3" style="font-size:.78rem;">
+            增删改会自动写入 <code>scripts/datasource/incremental/</code> 增量脚本，并更新
+            <code>scripts/datasource/full/dbcompare_datasource_full.sql</code>（密码为 ENC 密文）。
+        </p>
+
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th style="width:50px;">ID</th>
+                                <th>名称</th>
+                                <th>数据库类型</th>
+                                <th>连接地址</th>
+                                <th>用户名</th>
+                                <th style="width:70px;">状态</th>
+                                <th style="width:200px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr th:each="ds : ${dataSources}">
+                                <td class="text-muted" style="font-size:.8rem;">#<span th:text="${ds.id}"></span></td>
+                                <td>
+                                    <span class="fw-bold" th:text="${ds.name}"></span>
+                                    <div th:if="${ds.description}" class="text-muted" style="font-size:.72rem;" th:text="${ds.description}"></div>
+                                </td>
+                                <td>
+                                    <span class="db-type-badge"
+                                          th:classappend="${ds.dbType != null ? 'dt-' + #strings.toLowerCase(ds.dbType.name()) : ''}"
+                                          th:text="${ds.dbType}"></span>
+                                </td>
+                                <td>
+                                    <code style="font-size:.78rem;color:var(--color-text-secondary);" th:text="${ds.url}"></code>
+                                </td>
+                                <td th:text="${ds.username}"></td>
+                                <td>
+                                    <span th:if="${ds.enabled}" class="status-pill sp-success">启用</span>
+                                    <span th:unless="${ds.enabled}" class="status-pill sp-muted">禁用</span>
+                                </td>
+                                <td>
+                                    <div class="action-group">
+                                        <button class="btn-icon-only btn-test-conn" th:attr="data-id=${ds.id}"
+                                                th:onclick="|testConnection(${ds.id}, this)|"
+                                                title="测试连接">&#9654;</button>
+                                        <a th:href="@{/datasource/edit/{id}(id=${ds.id})}"
+                                           class="btn-icon-only" title="编辑" style="text-decoration:none;">&#9998;</a>
+                                        <button class="btn-icon-only" th:onclick="|deleteDataSource(${ds.id})|"
+                                                title="删除" style="color:var(--color-danger);">&#10005;</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr th:if="${#lists.isEmpty(dataSources)}">
+                                <td colspan="7">
+                                    <div class="empty-state">
+                                        <span class="es-icon">&#128451;</span>
+                                        <h5>暂无数据源</h5>
+                                        <p>添加数据库连接配置，即可开始比对任务</p>
+                                        <a href="/datasource/add" class="btn btn-primary">添加第一个数据源</a>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        var testingId = null;
+
+        function testConnection(id, btn) {
+            if (testingId !== null) return;
+            testingId = id;
+            var $btn = btn ? $(btn) : $('[data-id="' + id + '"]');
+            $btn.addClass('testing').prop('disabled', true);
+
+            $.post('/datasource/test/' + id, {})
+                .done(function(res) {
+                    var msg = res.msg || (res.success ? '连接成功' : '连接失败');
+                    showToast(msg, res.success ? 'success' : 'danger', res.success ? 3000 : 8000);
+                })
+                .fail(function(xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.msg) ? xhr.responseJSON.msg : '请求失败';
+                    showToast(msg, 'danger', 8000);
+                })
+                .always(function() {
+                    testingId = null;
+                    $btn.removeClass('testing').prop('disabled', false);
+                });
+        }
+
+        function deleteDataSource(id) {
+            AppConfirm.open({
+                title: '删除数据源',
+                message: '确定要删除该数据源吗？此操作不可恢复。',
+                confirmText: '删除',
+                cancelText: '取消',
+                danger: true,
+                onConfirm: function() {
+                    $.post('/datasource/delete/' + id, {}, function(res) {
+                        if (res.success) { location.reload(); }
+                        else { showToast('删除失败：' + res.msg, 'danger'); }
+                    }).fail(function() {
+                        showToast('请求失败', 'danger');
+                    });
+                }
+            });
+        }
+    </script>
+    <script>
+        function showToast(msg, type, duration) {
+            if (window.AppToast && AppToast.show) {
+                AppToast.show(msg, type || 'info', duration);
+                return;
+            }
+            type = type || 'info';
+            duration = duration || 3000;
+            var el = $('<div class="toast-msg toast-' + type + '">' + escHtml(msg) + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, duration);
+        }
+        function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    </script>
+    <script th:src="@{/js/app-toast.js}"></script>
+    <script th:src="@{/js/confirm-dialog.js}"></script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+# Archives / accidental root droppings
+*.rar
+*.zip
+/SyncTaskRunner.java
+/Q.java
+/T.java
+/tmp-*.sql
+/tmp-*.json
+hs_err_pid*.log
+replay_pid*.log
+
+# Build
+target/
+*.class
+*.jar
+*.war
+*.ear
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*~
+
+# Runtime / local data
+data/
+logs/
+reports/
+scripts/datasource/full/
+scripts/datasource/incremental/
+scripts/datasource/CHANGELOG.md
+*.log
+*.h2.db
+*.mv.db
+*.trace.db
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+**/credentials.json
+*.pem
+*.key
+
+# DataX local secrets / rendered jobs
+scripts/datax/connections.properties
+scripts/datax/out/
