@@ -1,0 +1,44 @@
+{
+  "job" : {
+    "setting" : {
+      "speed" : {
+        "channel" : 8,
+        "byte" : -1
+      },
+      "errorLimit" : {
+        "record" : 0,
+        "percentage" : 0.02
+      }
+    },
+    "content" : [ {
+      "reader" : {
+        "name" : "mysqlreader",
+        "parameter" : {
+          "username" : "sync",
+          "password" : "sync123",
+          "column" : [ "*" ],
+          "splitPk" : "id",
+          "connection" : [ {
+            "table" : [ "big_sync_60m" ],
+            "jdbcUrl" : [ "jdbc:mysql://127.0.0.1:3306/loadtest?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8&connectTimeout=15000&socketTimeout=0&rewriteBatchedStatements=true&useServerPrepStmts=false&autoReconnect=true&maxReconnects=3" ]
+          } ]
+        }
+      },
+      "writer" : {
+        "name" : "mysqlwriter",
+        "parameter" : {
+          "writeMode" : "insert",
+          "username" : "sync",
+          "password" : "sync123",
+          "column" : [ "*" ],
+          "batchSize" : 4096,
+          "preSql" : [ "TRUNCATE TABLE `big_sync_60m`" ],
+          "connection" : [ {
+            "jdbcUrl" : "jdbc:mysql://127.0.0.1:3306/loadtest_tgt?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8&connectTimeout=15000&socketTimeout=0&rewriteBatchedStatements=true&useServerPrepStmts=false&autoReconnect=true&maxReconnects=3",
+            "table" : [ "big_sync_60m" ]
+          } ]
+        }
+      }
+    } ]
+  }
+}

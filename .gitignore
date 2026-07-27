@@ -27,7 +27,6 @@ target/
 *~
 
 # Runtime / local data
-data/
 logs/
 reports/
 scripts/datasource/full/

@@ -108,16 +108,16 @@
                     <div class="row g-2 mb-2">
                         <div class="col-md-8">
                             <label class="form-label small mb-0">主机</label>
-                            <input type="text" class="form-control form-control-sm" id="jmsHost" placeholder="jms.zking.com">
+                            <input type="text" class="form-control form-control-sm" id="jmsHost" placeholder="堡垒机主机，如 jump.example.com">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small mb-0">端口</label>
-                            <input type="text" class="form-control form-control-sm" id="jmsPort" placeholder="33061">
+                            <input type="text" class="form-control form-control-sm" id="jmsPort" placeholder="堡垒机端口">
                         </div>
                     </div>
                     <div class="mb-2">
                         <label class="form-label small mb-0">Token 用户名</label>
-                        <input type="text" class="form-control form-control-sm" id="jmsUser" placeholder="4a359dc4-ec98-4d7e-8561-94cc10800cc0">
+                        <input type="text" class="form-control form-control-sm" id="jmsUser" placeholder="Token 用户名（UUID）">
                     </div>
                     <div class="mb-2">
                         <label class="form-label small mb-0">Token 密码</label>
@@ -190,7 +190,7 @@
             'MYSQL':      { port: 3306, urlPattern: 'jdbc:mysql://host:3306/database', hint: 'MySQL 使用 jdbc:mysql://，会自动追加 useSSL、serverTimezone 等参数' },
             'POSTGRESQL': { port: 5432, urlPattern: 'jdbc:postgresql://host:5432/database', hint: 'PostgreSQL JDBC 连接地址' },
             'ORACLE':     { port: 1521, urlPattern: 'jdbc:oracle:thin:@host:1521:database', hint: 'Oracle thin 连接' },
-            'GOLDENDB':   { port: 3306, urlPattern: 'jdbc:mysql://jms.zking.com:33061/', hint: 'GoldenDB 经 JumpServer：URL 填 jdbc:mysql://堡垒机主机:端口/ ，库名填 Schema' },
+            'GOLDENDB':   { port: 3306, urlPattern: 'jdbc:mysql://host:port/', hint: 'GoldenDB 经堡垒机：URL 填 jdbc:mysql://堡垒机主机:端口/ ，库名填 Schema' },
             'SQLSERVER':  { port: 1433, urlPattern: 'jdbc:sqlserver://host:1433;databaseName=database', hint: 'SQL Server JDBC 连接地址' },
             'H2':         { port: null, urlPattern: 'jdbc:h2:file:./data/database', hint: 'H2 文件库路径' },
             'SQLITE':     { port: null, urlPattern: 'jdbc:sqlite:./data/database.db', hint: 'SQLite 文件路径' }
