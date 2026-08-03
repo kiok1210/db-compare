@@ -20,6 +20,9 @@ import java.util.function.Consumer;
 
 /**
  * 按同步任务表生成 DataX 作业并拉起本机 DataX 进程。
+ * <p>
+ * 全局限流：同时运行的 DataX 进程数受 {@link AppSettings#getDataxMaxConcurrent()} 约束，
+ * 通道数按并发均分全局预算，避免表级并行叠加撑爆内存。
  */
 @Service
 public class DataxSyncService {
@@ -28,6 +31,7 @@ public class DataxSyncService {
 
     private final DataSourceService dataSourceService;
     private final AppSettingsService appSettingsService;
+    private final DataxConcurrency concurrency = new DataxConcurrency();
 
     public DataxSyncService(DataSourceService dataSourceService, AppSettingsService appSettingsService) {
         this.dataSourceService = dataSourceService;
@@ -53,7 +57,39 @@ public class DataxSyncService {
 
         AppSettings settings = appSettingsService.getSettings();
         Path dataxPy = DataxProcessRunner.resolveDataxPy(settings.getDataxHome());
+        int maxConcurrent = DataxConcurrency.clampConcurrent(settings.getDataxMaxConcurrent());
+        int configuredChannel = DataxConcurrency.clampChannel(settings.getDataxChannel());
+        int channel = DataxConcurrency.effectiveChannel(configuredChannel, maxConcurrent);
 
+        if (logLine != null && concurrency.getActive() >= maxConcurrent) {
+            logLine.accept("DataX 槽位已满（并发上限 " + maxConcurrent
+                    + "），排队等待中… 活动进程=" + concurrency.getActive());
+        }
+        concurrency.acquire(maxConcurrent, cancelCheck);
+        try {
+            return runJob(task, sourceConfig, targetConfig, srcCatalog, tgtCatalog, tableName,
+                    primaryKeys, settings, dataxPy, channel, maxConcurrent, configuredChannel,
+                    cancelCheck, logLine, pollHeartbeat);
+        } finally {
+            concurrency.release();
+        }
+    }
+
+    private long runJob(SyncTask task,
+                        DataSourceConfig sourceConfig,
+                        DataSourceConfig targetConfig,
+                        String srcCatalog,
+                        String tgtCatalog,
+                        String tableName,
+                        List<String> primaryKeys,
+                        AppSettings settings,
+                        Path dataxPy,
+                        int channel,
+                        int maxConcurrent,
+                        int configuredChannel,
+                        BooleanSupplier cancelCheck,
+                        Consumer<String> logLine,
+                        Runnable pollHeartbeat) throws Exception {
         String srcJdbc = ensureCatalogInUrl(
                 JdbcConnectionHelper.normalizeJdbcUrl(sourceConfig.getUrl(), sourceConfig.getDbType()),
                 srcCatalog, sourceConfig.getDbType());
@@ -68,11 +104,13 @@ public class DataxSyncService {
         String srcPass = dataSourceService.resolvePasswordPublic(sourceConfig);
         String tgtPass = dataSourceService.resolvePasswordPublic(targetConfig);
 
-        String splitPk = (primaryKeys != null && !primaryKeys.isEmpty()) ? primaryKeys.get(0) : null;
-        int channel = settings.getDataxChannel();
+        // channel=1 时不再设 splitPk，避免无谓多切片线程
+        String splitPk = null;
+        if (channel > 1 && primaryKeys != null && !primaryKeys.isEmpty()) {
+            splitPk = primaryKeys.get(0);
+        }
         int batchSize = task.getBatchSize() != null ? Math.min(task.getBatchSize(), 4096) : 2048;
         String clearMode = DataxClearMode.normalize(settings.getDataxClearMode());
-        // 仅 DATAX_DELETE / DATAX_TRUNCATE 写入作业 preSql；应用侧已清表时作业不再清
         String jobClearMode = DataxClearMode.isDataxSideClear(clearMode) ? clearMode : DataxClearMode.NONE;
         String writeMode = DataxWriteMode.normalize(settings.getDataxWriteMode());
 
@@ -84,12 +122,14 @@ public class DataxSyncService {
         Path jobDir = Paths.get("data", "datax-jobs", String.valueOf(task.getId()));
         Path jobFile = DataxJobBuilder.writeJobFile(jobDir, sanitize(tableName) + ".json", job);
         String preSql = DataxClearMode.buildPreSql(tgtTableRef, jobClearMode);
-        log.info("DataX 作业已写入: {} srcJdbc库={} tgtJdbc库={} table={}->{} jobClear={} preSql={}",
-                jobFile.toAbsolutePath(), srcCatalog, tgtCatalog, srcTableRef, tgtTableRef,
-                jobClearMode, preSql);
+        log.info("DataX 作业已写入: {} channel={}/{}(配置) maxConcurrent={} active={} table={}->{}",
+                jobFile.toAbsolutePath(), channel, configuredChannel, maxConcurrent,
+                concurrency.getActive(), srcTableRef, tgtTableRef);
         if (logLine != null) {
             logLine.accept("DataX 作业: " + jobFile.toAbsolutePath()
-                    + " channel=" + channel
+                    + " channel=" + channel + (channel != configuredChannel
+                    ? ("（配置 " + configuredChannel + "，按并发上限 " + maxConcurrent + " 下调）") : "")
+                    + " 并发槽=" + concurrency.getActive() + "/" + maxConcurrent
                     + " splitPk=" + (splitPk != null ? splitPk : "(无)")
                     + " writeMode=" + writeMode
                     + " 表=" + srcTableRef + "→" + tgtTableRef
@@ -108,7 +148,6 @@ public class DataxSyncService {
         if (code != 0) {
             throw new IllegalStateException("DataX 退出码=" + code + "，作业=" + jobFile.toAbsolutePath());
         }
-        // DataX 不回传精确行数；调用方用 -1 表示「由 DataX 完成」
         return -1L;
     }
 
@@ -132,7 +171,6 @@ public class DataxSyncService {
         if (t.isEmpty()) {
             return t;
         }
-        // 已带库名则不再套一层
         if (t.indexOf('.') >= 0) {
             return t;
         }

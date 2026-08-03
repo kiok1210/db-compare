@@ -4,17 +4,19 @@ import java.util.*;
 
 /**
  * 字段智能分类器
- * 
+ *
  * 功能：
  * 1. 自动识别金额字段（排除利率、费率等比例字段）
- * 2. 自动识别时间字段
- * 3. 自动识别枚举/状态字段
- * 
+ * 2. 自动识别时间字段 / 业务日期字段
+ * 3. 自动识别状态字段
+ *
  * 识别策略：
  * - 金额字段：列名含 money/amount/amt/price/cost/fee/balance 等关键字，
  *   且数据类型为 DECIMAL/NUMERIC/FLOAT/DOUBLE/BIGINT
  * - 排除利率：列名含 rate/ratio/percent/pct 的字段
  * - 时间字段：数据类型为 DATE/TIME/TIMESTAMP 或列名含 time/date
+ * - 业务日期：trade_date / biz_date / acct_date 等业务语义日期（从时间字段中细分）
+ * - 状态字段：status / state / flag / enabled 等
  */
 public class FieldClassifier {
 
@@ -61,15 +63,35 @@ public class FieldClassifier {
         "时间", "日期", "创建", "更新", "修改", "删除"
     ));
 
+    /** 业务日期关键字（优先于系统时间戳） */
+    private static final List<String> BUSINESS_DATE_KEYWORDS = Arrays.asList(
+        "biz_date", "business_date", "trade_date", "trx_date", "trans_date",
+        "acct_date", "account_date", "settle_date", "clear_date", "value_date",
+        "posting_date", "booking_date", "occur_date", "work_date", "data_date",
+        "业务日期", "交易日期", "账务日期", "清算日期", "起息日", "数据日期"
+    );
+
+    /** 状态字段关键字 */
+    private static final Set<String> STATUS_KEYWORDS = new HashSet<>(Arrays.asList(
+        "status", "state", "flag", "enabled", "disabled", "deleted", "is_del",
+        "is_deleted", "del_flag", "valid", "active", "audit_status", "check_status",
+        "approve_status", "process_status", "pay_status", "order_status",
+        "状态", "标志", "是否删除", "审核状态", "审批状态"
+    ));
+
     /**
      * 分类结果
      */
     public static class FieldClassification {
         private List<DatabaseMetadataReader.ColumnMetadata> amountFields = new ArrayList<>();
         private List<DatabaseMetadataReader.ColumnMetadata> timeFields = new ArrayList<>();
+        private List<DatabaseMetadataReader.ColumnMetadata> businessDateFields = new ArrayList<>();
+        private List<DatabaseMetadataReader.ColumnMetadata> statusFields = new ArrayList<>();
         private List<DatabaseMetadataReader.ColumnMetadata> otherFields = new ArrayList<>();
         private List<String> amountFieldNames = new ArrayList<>();
         private List<String> timeFieldNames = new ArrayList<>();
+        private List<String> businessDateFieldNames = new ArrayList<>();
+        private List<String> statusFieldNames = new ArrayList<>();
         private boolean hasAmountField;
 
         public List<DatabaseMetadataReader.ColumnMetadata> getAmountFields() {
@@ -86,6 +108,22 @@ public class FieldClassifier {
 
         public void setTimeFields(List<DatabaseMetadataReader.ColumnMetadata> timeFields) {
             this.timeFields = timeFields;
+        }
+
+        public List<DatabaseMetadataReader.ColumnMetadata> getBusinessDateFields() {
+            return businessDateFields;
+        }
+
+        public void setBusinessDateFields(List<DatabaseMetadataReader.ColumnMetadata> businessDateFields) {
+            this.businessDateFields = businessDateFields;
+        }
+
+        public List<DatabaseMetadataReader.ColumnMetadata> getStatusFields() {
+            return statusFields;
+        }
+
+        public void setStatusFields(List<DatabaseMetadataReader.ColumnMetadata> statusFields) {
+            this.statusFields = statusFields;
         }
 
         public List<DatabaseMetadataReader.ColumnMetadata> getOtherFields() {
@@ -112,6 +150,22 @@ public class FieldClassifier {
             this.timeFieldNames = timeFieldNames;
         }
 
+        public List<String> getBusinessDateFieldNames() {
+            return businessDateFieldNames;
+        }
+
+        public void setBusinessDateFieldNames(List<String> businessDateFieldNames) {
+            this.businessDateFieldNames = businessDateFieldNames;
+        }
+
+        public List<String> getStatusFieldNames() {
+            return statusFieldNames;
+        }
+
+        public void setStatusFieldNames(List<String> statusFieldNames) {
+            this.statusFieldNames = statusFieldNames;
+        }
+
         public boolean isHasAmountField() {
             return hasAmountField;
         }
@@ -136,26 +190,93 @@ public class FieldClassifier {
             String dataType = col.getDataType();
             String dataTypeUpper = dataType != null ? dataType.toUpperCase() : "";
 
-            // 1. 判断是否为金额字段
+            // 1. 金额字段
             if (isAmountField(colNameLower, dataTypeUpper)) {
                 result.getAmountFields().add(col);
                 result.getAmountFieldNames().add(colName);
                 continue;
             }
 
-            // 2. 判断是否为时间字段
+            // 2. 业务日期（优先于普通时间）
+            if (isBusinessDateField(colNameLower, dataTypeUpper)) {
+                result.getBusinessDateFields().add(col);
+                result.getBusinessDateFieldNames().add(colName);
+                result.getTimeFields().add(col);
+                result.getTimeFieldNames().add(colName);
+                continue;
+            }
+
+            // 3. 时间字段
             if (isTimeField(colNameLower, dataTypeUpper)) {
                 result.getTimeFields().add(col);
                 result.getTimeFieldNames().add(colName);
                 continue;
             }
 
-            // 3. 其他字段
+            // 4. 状态字段
+            if (isStatusField(colNameLower)) {
+                result.getStatusFields().add(col);
+                result.getStatusFieldNames().add(colName);
+                continue;
+            }
+
+            // 5. 其他字段
             result.getOtherFields().add(col);
         }
 
         result.setHasAmountField(!result.getAmountFields().isEmpty());
         return result;
+    }
+
+    /**
+     * 从索引元数据中提取非主键索引列（去重保序）。
+     */
+    public static List<String> extractIndexColumnNames(
+            List<DatabaseMetadataReader.IndexMetadata> indexes,
+            List<String> primaryKeys) {
+        Set<String> pkLower = new HashSet<>();
+        if (primaryKeys != null) {
+            for (String pk : primaryKeys) {
+                if (pk != null) {
+                    pkLower.add(pk.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        LinkedHashSet<String> cols = new LinkedHashSet<>();
+        if (indexes != null) {
+            for (DatabaseMetadataReader.IndexMetadata idx : indexes) {
+                if (idx == null || idx.getColumnName() == null || idx.getColumnName().isEmpty()) {
+                    continue;
+                }
+                String col = idx.getColumnName();
+                if (pkLower.contains(col.toLowerCase(Locale.ROOT))) {
+                    continue;
+                }
+                cols.add(col);
+            }
+        }
+        return new ArrayList<>(cols);
+    }
+
+    /**
+     * 构建详细比对关注列：主键 → 索引列 → 状态 → 业务日期 → 金额（去重保序）。
+     */
+    public static List<String> buildFocusColumns(List<String> primaryKeys,
+                                                 List<String> indexColumns,
+                                                 FieldClassification classification) {
+        LinkedHashSet<String> focus = new LinkedHashSet<>();
+        if (primaryKeys != null) {
+            focus.addAll(primaryKeys);
+        }
+        if (indexColumns != null) {
+            focus.addAll(indexColumns);
+        }
+        if (classification != null) {
+            focus.addAll(classification.getStatusFieldNames());
+            focus.addAll(classification.getBusinessDateFieldNames());
+            focus.addAll(classification.getAmountFieldNames());
+        }
+        return new ArrayList<>(focus);
     }
 
     /**
@@ -230,6 +351,30 @@ public class FieldClassifier {
         // 列名匹配
         for (String keyword : TIME_KEYWORDS) {
             if (colNameLower.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBusinessDateField(String colNameLower, String dataTypeUpper) {
+        boolean dateLike = TIME_DATA_TYPES.contains(dataTypeUpper)
+                || colNameLower.contains("date") || colNameLower.contains("日期");
+        if (!dateLike) {
+            return false;
+        }
+        for (String keyword : BUSINESS_DATE_KEYWORDS) {
+            if (colNameLower.equals(keyword) || colNameLower.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isStatusField(String colNameLower) {
+        for (String keyword : STATUS_KEYWORDS) {
+            if (colNameLower.equals(keyword) || colNameLower.endsWith("_" + keyword)
+                    || colNameLower.startsWith(keyword + "_") || colNameLower.contains(keyword)) {
                 return true;
             }
         }

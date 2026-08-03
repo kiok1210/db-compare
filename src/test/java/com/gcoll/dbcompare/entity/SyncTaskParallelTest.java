@@ -3,6 +3,7 @@ package com.gcoll.dbcompare.entity;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SyncTaskParallelTest {
 
@@ -22,5 +23,15 @@ class SyncTaskParallelTest {
         assertEquals(5, SyncTask.defaultParallelForTableCount(5));
         assertEquals(20, SyncTask.defaultParallelForTableCount(20));
         assertEquals(20, SyncTask.defaultParallelForTableCount(100));
+    }
+
+    @Test
+    void normalizeMode_acceptsHybrid() {
+        assertEquals(SyncTask.MODE_HYBRID, SyncTask.normalizeMode("hybrid"));
+        assertEquals(SyncTask.MODE_HYBRID, SyncTask.normalizeMode("HYBRID"));
+        SyncTask t = new SyncTask();
+        t.setSyncMode("HYBRID");
+        assertTrue(t.isHybridMode());
+        assertTrue(SyncTask.modeDisplayName("HYBRID").contains("混合"));
     }
 }

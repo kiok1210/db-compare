@@ -1,6 +1,5 @@
 package com.gcoll.dbcompare.service;
 
-import com.gcoll.dbcompare.compare.DatabaseCompareAdapter;
 import com.gcoll.dbcompare.ds.DataSourceConfig;
 import com.gcoll.dbcompare.entity.CompareTask;
 import com.gcoll.dbcompare.entity.DatabaseType;
@@ -79,7 +78,7 @@ public class CompareService {
     }
 
     /**
-     * 按主键归并查询单表条数差异的具体行（仅源有 / 仅目标有）。
+     * 按主键归并查询单表详细差异（主键/索引/状态/业务日期/金额关注列 + 定位 SQL）。
      *
      * @param tableKey 报告中的表名，建议 schema::table
      * @param limit    每侧最多返回条数，默认 100，上限 500
@@ -127,24 +126,14 @@ public class CompareService {
 
             try (Connection sourceConn = pools.borrowSource(sourceSchema, isMultiSource);
                  Connection targetConn = pools.borrowTarget(targetSchema, isMultiTarget, false)) {
-                List<String> primaryKeys;
-                if (catalogs.srcCat != null && !catalogs.srcCat.isEmpty()) {
-                    primaryKeys = com.gcoll.dbcompare.dictionary.DatabaseMetadataReader
-                            .readTableMetadata(sourceConn, pureTable, sourceDbType, catalogs.srcCat)
-                            .getPrimaryKeys();
-                } else {
-                    primaryKeys = DatabaseCompareAdapter.getPrimaryKeys(sourceConn, pureTable, sourceDbType);
-                }
-
-                Map<String, Object> detail = DatabaseCompareAdapter.findPrimaryKeyDiffDetails(
-                        sourceConn, targetConn, srcQualified, tgtQualified, primaryKeys,
-                        sourceDbType, targetDbType, ROW_DIFF_BATCH, maxDiffRows);
+                Map<String, Object> detail = com.gcoll.dbcompare.compare.DetailedTableComparator.compareDetailed(
+                        sourceConn, targetConn,
+                        pureTable, catalogs.srcCat, catalogs.tgtCat,
+                        srcQualified, tgtQualified,
+                        sourceDbType, targetDbType,
+                        ROW_DIFF_BATCH, maxDiffRows);
                 Map<String, Object> out = new LinkedHashMap<>();
                 out.put("table", table);
-                out.put("sourceTable", srcQualified);
-                out.put("targetTable", tgtQualified);
-                out.put("sourceCatalog", catalogs.srcCat);
-                out.put("targetCatalog", catalogs.tgtCat);
                 out.putAll(detail);
                 return out;
             }

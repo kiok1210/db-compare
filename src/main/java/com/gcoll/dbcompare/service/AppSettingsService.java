@@ -6,6 +6,7 @@ import com.gcoll.dbcompare.entity.AppSettings;
 import com.gcoll.dbcompare.entity.SyncTask;
 import com.gcoll.dbcompare.repository.AppMetaRepository;
 import com.gcoll.dbcompare.service.datax.DataxClearMode;
+import com.gcoll.dbcompare.service.datax.DataxConcurrency;
 import com.gcoll.dbcompare.service.datax.DataxWriteMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,12 +54,13 @@ public class AppSettingsService {
             meta.setUpdateTime(LocalDateTime.now());
             appMetaRepository.save(meta);
             cached = normalized;
-            log.info("已保存全局参数: parallel={}, syncBatch={}, deleteBatch={}, mode={}, compareBatch={}, dataxHome={}, dataxChannel={}, dataxWriteMode={}",
+            log.info("已保存全局参数: parallel={}, syncBatch={}, deleteBatch={}, mode={}, compareBatch={}, dataxHome={}, dataxChannel={}, dataxMaxConcurrent={}, dataxWriteMode={}",
                     normalized.getSyncParallelThreads(), normalized.getSyncBatchSize(),
                     normalized.getSyncDeleteBatchSize(), normalized.getSyncDefaultMode(),
                     normalized.getCompareBatchSize(),
                     normalized.getDataxHome() == null || normalized.getDataxHome().isEmpty() ? "(空)" : normalized.getDataxHome(),
                     normalized.getDataxChannel(),
+                    normalized.getDataxMaxConcurrent(),
                     normalized.getDataxWriteMode());
             return copy(normalized);
         } catch (Exception e) {
@@ -80,7 +82,20 @@ public class AppSettingsService {
         out.setSyncDefaultMode(SyncTask.normalizeMode(s.getSyncDefaultMode()));
         out.setCompareBatchSize(clamp(s.getCompareBatchSize(), 100, 20000, 1000));
         out.setDataxHome(s.getDataxHome() != null ? s.getDataxHome().trim() : "");
-        out.setDataxChannel(clamp(s.getDataxChannel(), 1, 32, 8));
+        int ch = s.getDataxChannel();
+        if (ch < 1) {
+            ch = DataxConcurrency.DEFAULT_CHANNEL;
+        } else if (ch > DataxConcurrency.ABS_MAX_CHANNEL) {
+            ch = DataxConcurrency.ABS_MAX_CHANNEL;
+        }
+        out.setDataxChannel(ch);
+        int maxDx = s.getDataxMaxConcurrent();
+        if (maxDx < 1) {
+            maxDx = DataxConcurrency.DEFAULT_MAX_CONCURRENT;
+        } else if (maxDx > DataxConcurrency.ABS_MAX_CONCURRENT) {
+            maxDx = DataxConcurrency.ABS_MAX_CONCURRENT;
+        }
+        out.setDataxMaxConcurrent(maxDx);
         out.setDataxClearMode(DataxClearMode.normalize(s.getDataxClearMode()));
         out.setDataxWriteMode(DataxWriteMode.normalize(s.getDataxWriteMode()));
         return out;
@@ -115,6 +130,7 @@ public class AppSettingsService {
         c.setCompareBatchSize(s.getCompareBatchSize());
         c.setDataxHome(s.getDataxHome());
         c.setDataxChannel(s.getDataxChannel());
+        c.setDataxMaxConcurrent(s.getDataxMaxConcurrent());
         c.setDataxClearMode(s.getDataxClearMode());
         c.setDataxWriteMode(s.getDataxWriteMode());
         return c;

@@ -102,7 +102,7 @@ public class CompareController {
     }
 
     /**
-     * 查询单表条数差异的具体主键行（AJAX）
+     * 指定表详细比对：主键/索引/状态/业务日期/金额关注列差异 + 源/目标定位 SQL（AJAX）
      */
     @GetMapping("/row-diff/{taskId}")
     @ResponseBody

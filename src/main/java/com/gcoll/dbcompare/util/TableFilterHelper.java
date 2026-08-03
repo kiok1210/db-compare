@@ -70,10 +70,24 @@ public final class TableFilterHelper {
     }
 
     public static List<String> splitPatterns(String raw) {
-        return Arrays.stream(raw.split("[,;\\s]+"))
+        if (raw == null || raw.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        // 中文逗号/分号；* 视为 SQL LIKE 的 %
+        String normalized = raw.replace('，', ',').replace('；', ';');
+        return Arrays.stream(normalized.split("[,;\\s]+"))
             .map(String::trim)
             .filter(s -> !s.isEmpty())
+            .map(TableFilterHelper::normalizeWildcardPattern)
             .collect(Collectors.toList());
+    }
+
+    /** 将用户习惯的 * 通配规范为 SQL LIKE 的 % */
+    static String normalizeWildcardPattern(String pattern) {
+        if (pattern == null || pattern.isEmpty()) {
+            return pattern;
+        }
+        return pattern.replace('*', '%');
     }
 
     /** 无 % 通配符的显式表名列表（一键重同步 / 勾选表场景；表名中的 _ 视为字面量） */
@@ -161,8 +175,12 @@ public final class TableFilterHelper {
                 return true;
             }
             // 无 % 时不做 LIKE（表名中的 _ 是字面量，不是通配）
-            if (!pFull.contains("%") && !pattern.contains("%")) {
+            if (!pFull.contains("%") && !pPure.contains("%") && !pattern.contains("%")) {
                 continue;
+            }
+            // 模式仅含通配（如 % / %%）时匹配任意表
+            if (isMatchAllWildcard(pFull) || isMatchAllWildcard(pPure)) {
+                return true;
             }
             String regexFull = sqlWildcardToRegex(pFull);
             String regexPure = sqlWildcardToRegex(pPure);
@@ -178,6 +196,19 @@ public final class TableFilterHelper {
             }
         }
         return false;
+    }
+
+    /** 是否为「匹配全部」通配（% / %% / 空段） */
+    static boolean isMatchAllWildcard(String pattern) {
+        if (pattern == null || pattern.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < pattern.length(); i++) {
+            if (pattern.charAt(i) != '%') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

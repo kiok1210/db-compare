@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -219,6 +220,7 @@ public class DatabaseMetadataReader {
         metadata.setDatabaseType(dbType);
         
         DatabaseMetaData dbMetaData = conn.getMetaData();
+        String metaTableName = resolveMetaTableName(dbMetaData, catalog, tableName, dbType);
         
         // 读取列信息
         List<ColumnMetadata> columns = new ArrayList<>();
@@ -240,7 +242,7 @@ public class DatabaseMetadataReader {
                 }
             }
         } else {
-            try (ResultSet rs = dbMetaData.getColumns(catalog, null, tableName, null)) {
+            try (ResultSet rs = dbMetaData.getColumns(catalog, null, metaTableName, null)) {
                 while (rs.next()) {
                     ColumnMetadata col = new ColumnMetadata();
                     col.setColumnName(rs.getString("COLUMN_NAME"));
@@ -263,7 +265,7 @@ public class DatabaseMetadataReader {
         
         // 读取主键
         List<String> primaryKeys = new ArrayList<>();
-        try (ResultSet rs = dbMetaData.getPrimaryKeys(catalog, null, tableName)) {
+        try (ResultSet rs = dbMetaData.getPrimaryKeys(catalog, null, metaTableName)) {
             while (rs.next()) {
                 primaryKeys.add(rs.getString("COLUMN_NAME"));
             }
@@ -272,7 +274,7 @@ public class DatabaseMetadataReader {
         
         // 读取索引
         List<IndexMetadata> indexes = new ArrayList<>();
-        try (ResultSet rs = dbMetaData.getIndexInfo(catalog, null, tableName, false, true)) {
+        try (ResultSet rs = dbMetaData.getIndexInfo(catalog, null, metaTableName, false, true)) {
             while (rs.next()) {
                 IndexMetadata idx = new IndexMetadata();
                 idx.setIndexName(rs.getString("INDEX_NAME"));
@@ -287,8 +289,37 @@ public class DatabaseMetadataReader {
         }
         metadata.setIndexes(indexes);
         
-        log.debug("读取表元数据完成: {} ({})", tableName, dbType.getDisplayName());
+        log.debug("读取表元数据完成: {} -> {} ({})", tableName, metaTableName, dbType.getDisplayName());
         return metadata;
+    }
+
+    /**
+     * H2/部分库未加引号标识符会折叠大小写；按原名→大写→小写探测 JDBC 元数据中的真实表名。
+     */
+    private static String resolveMetaTableName(DatabaseMetaData dbMetaData, String catalog,
+                                               String tableName, DatabaseType dbType) throws SQLException {
+        if (tableName == null || tableName.isEmpty() || dbType == DatabaseType.SQLITE) {
+            return tableName;
+        }
+        if (hasColumns(dbMetaData, catalog, tableName)) {
+            return tableName;
+        }
+        String upper = tableName.toUpperCase(Locale.ROOT);
+        if (!upper.equals(tableName) && hasColumns(dbMetaData, catalog, upper)) {
+            return upper;
+        }
+        String lower = tableName.toLowerCase(Locale.ROOT);
+        if (!lower.equals(tableName) && !lower.equals(upper) && hasColumns(dbMetaData, catalog, lower)) {
+            return lower;
+        }
+        return tableName;
+    }
+
+    private static boolean hasColumns(DatabaseMetaData dbMetaData, String catalog, String tableName)
+            throws SQLException {
+        try (ResultSet rs = dbMetaData.getColumns(catalog, null, tableName, null)) {
+            return rs.next();
+        }
     }
     
     /**

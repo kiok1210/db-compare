@@ -315,6 +315,20 @@ public class DatabaseCompareAdapter {
             String tableName, String targetTableName, List<String> primaryKeys,
             DatabaseType sourceDbType, DatabaseType targetDbType,
             int batchSize, int maxDiffRows) throws SQLException {
+        return findPrimaryKeyDiffDetails(sourceConn, targetConn, tableName, targetTableName, primaryKeys,
+                sourceDbType, targetDbType, batchSize, maxDiffRows, null);
+    }
+
+    /**
+     * 主键归并差异 + 可选关注列不一致检测（同主键两侧均存在但关注字段值不同）。
+     *
+     * @param focusColumns 关注列（主键/索引/状态/业务日期/金额等）；为空则仅做两侧有无差异
+     */
+    public static Map<String, Object> findPrimaryKeyDiffDetails(
+            Connection sourceConn, Connection targetConn,
+            String tableName, String targetTableName, List<String> primaryKeys,
+            DatabaseType sourceDbType, DatabaseType targetDbType,
+            int batchSize, int maxDiffRows, List<String> focusColumns) throws SQLException {
         Map<String, Object> result = new LinkedHashMap<>();
         if (primaryKeys == null || primaryKeys.isEmpty()) {
             result.put("consistent", false);
@@ -329,12 +343,16 @@ public class DatabaseCompareAdapter {
             maxDiffRows = 0;
         }
 
+        List<String> compareCols = filterNonPkFocus(focusColumns, primaryKeys);
+
         long sourceCount = countTable(sourceConn, tableName, sourceDbType);
         long targetCount = countTable(targetConn, targetTableName, targetDbType);
         result.put("sourceCount", sourceCount);
         result.put("targetCount", targetCount);
         result.put("diff", sourceCount - targetCount);
         result.put("primaryKeys", primaryKeys);
+        result.put("focusColumns", focusColumns == null ? Collections.emptyList() : focusColumns);
+        result.put("compareColumns", compareCols);
         result.put("maxDiffRows", maxDiffRows);
 
         String srcOrderBy = quoteOrderBy(primaryKeys, sourceDbType);
@@ -342,6 +360,7 @@ public class DatabaseCompareAdapter {
 
         List<Map<String, Object>> onlyInSource = new ArrayList<>();
         List<Map<String, Object>> onlyInTarget = new ArrayList<>();
+        List<Map<String, Object>> mismatches = new ArrayList<>();
         List<Map<String, Object>> diffRows = new ArrayList<>();
 
         List<Map<String, Object>> srcBatch = Collections.emptyList();
@@ -380,7 +399,8 @@ public class DatabaseCompareAdapter {
 
             boolean sourceFull = onlyInSource.size() >= maxDiffRows;
             boolean targetFull = onlyInTarget.size() >= maxDiffRows;
-            if (sourceFull && targetFull) {
+            boolean mismatchFull = mismatches.size() >= maxDiffRows;
+            if (sourceFull && targetFull && (compareCols.isEmpty() || mismatchFull)) {
                 truncated = true;
                 break;
             }
@@ -391,7 +411,7 @@ public class DatabaseCompareAdapter {
                     scannedTarget++;
                     Map<String, Object> entry = buildSideDiffEntry("only_in_target", primaryKeys, tgtRow);
                     onlyInTarget.add(entry);
-                    if (diffRows.size() < maxDiffRows * 2) {
+                    if (diffRows.size() < maxDiffRows * 3) {
                         diffRows.add(entry);
                     }
                 } else {
@@ -406,7 +426,7 @@ public class DatabaseCompareAdapter {
                     scannedSource++;
                     Map<String, Object> entry = buildSideDiffEntry("only_in_source", primaryKeys, srcRow);
                     onlyInSource.add(entry);
-                    if (diffRows.size() < maxDiffRows * 2) {
+                    if (diffRows.size() < maxDiffRows * 3) {
                         diffRows.add(entry);
                     }
                 } else {
@@ -424,7 +444,7 @@ public class DatabaseCompareAdapter {
                 if (!sourceFull) {
                     Map<String, Object> entry = buildSideDiffEntry("only_in_source", primaryKeys, srcRow);
                     onlyInSource.add(entry);
-                    if (diffRows.size() < maxDiffRows * 2) {
+                    if (diffRows.size() < maxDiffRows * 3) {
                         diffRows.add(entry);
                     }
                 } else {
@@ -436,7 +456,7 @@ public class DatabaseCompareAdapter {
                 if (!targetFull) {
                     Map<String, Object> entry = buildSideDiffEntry("only_in_target", primaryKeys, tgtRow);
                     onlyInTarget.add(entry);
-                    if (diffRows.size() < maxDiffRows * 2) {
+                    if (diffRows.size() < maxDiffRows * 3) {
                         diffRows.add(entry);
                     }
                 } else {
@@ -446,6 +466,23 @@ public class DatabaseCompareAdapter {
             } else {
                 scannedSource++;
                 scannedTarget++;
+                if (!compareCols.isEmpty() && !mismatchFull) {
+                    Map<String, Map<String, Object>> fieldDiffs = collectFocusDiffFields(compareCols, srcRow, tgtRow);
+                    if (!fieldDiffs.isEmpty()) {
+                        Map<String, Object> entry = new LinkedHashMap<>();
+                        entry.put("type", "mismatch");
+                        entry.put("pk", buildPkValues(primaryKeys, srcRow));
+                        entry.put("sourceValues", projectRow(srcRow, compareCols, primaryKeys));
+                        entry.put("targetValues", projectRow(tgtRow, compareCols, primaryKeys));
+                        entry.put("diffFields", fieldDiffs);
+                        mismatches.add(entry);
+                        if (diffRows.size() < maxDiffRows * 3) {
+                            diffRows.add(entry);
+                        }
+                    }
+                } else if (!compareCols.isEmpty() && mismatchFull) {
+                    truncated = true;
+                }
                 si++;
                 ti++;
             }
@@ -453,24 +490,85 @@ public class DatabaseCompareAdapter {
 
         long onlySrcCount = onlyInSource.size();
         long onlyTgtCount = onlyInTarget.size();
-        // 若提前截断，已收集数可能小于真实差异；用条数差作下界提示
+        long mismatchCount = mismatches.size();
         result.put("onlyInSourceCount", onlySrcCount);
         result.put("onlyInTargetCount", onlyTgtCount);
+        result.put("mismatchCount", mismatchCount);
         result.put("onlyInSource", onlyInSource);
         result.put("onlyInTarget", onlyInTarget);
+        result.put("mismatches", mismatches);
         result.put("diffRows", diffRows);
-        result.put("diffCount", onlySrcCount + onlyTgtCount);
+        result.put("diffCount", onlySrcCount + onlyTgtCount + mismatchCount);
         result.put("missingCount", onlySrcCount);
         result.put("extraCount", onlyTgtCount);
-        result.put("mismatchCount", 0);
         result.put("scannedSource", scannedSource);
         result.put("scannedTarget", scannedTarget);
         result.put("truncated", truncated);
-        result.put("consistent", onlySrcCount == 0 && onlyTgtCount == 0 && sourceCount == targetCount);
+        result.put("consistent", onlySrcCount == 0 && onlyTgtCount == 0 && mismatchCount == 0
+                && sourceCount == targetCount);
 
-        log.info("表 {} 主键差异: 仅源={} 仅目标={} truncated={} (源条数={}, 目标条数={})",
-                tableName, onlySrcCount, onlyTgtCount, truncated, sourceCount, targetCount);
+        log.info("表 {} 主键差异: 仅源={} 仅目标={} 字段不一致={} truncated={} (源条数={}, 目标条数={})",
+                tableName, onlySrcCount, onlyTgtCount, mismatchCount, truncated, sourceCount, targetCount);
         return result;
+    }
+
+    private static List<String> filterNonPkFocus(List<String> focusColumns, List<String> primaryKeys) {
+        if (focusColumns == null || focusColumns.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> pkLower = new HashSet<>();
+        for (String pk : primaryKeys) {
+            if (pk != null) {
+                pkLower.add(pk.toLowerCase(Locale.ROOT));
+            }
+        }
+        List<String> out = new ArrayList<>();
+        for (String col : focusColumns) {
+            if (col == null || col.isEmpty()) {
+                continue;
+            }
+            if (pkLower.contains(col.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            out.add(col);
+        }
+        return out;
+    }
+
+    private static Map<String, Map<String, Object>> collectFocusDiffFields(
+            List<String> compareCols, Map<String, Object> sourceRow, Map<String, Object> targetRow) {
+        Map<String, Map<String, Object>> diffs = new LinkedHashMap<>();
+        for (String col : compareCols) {
+            Object srcVal = getRowValue(sourceRow, col);
+            Object tgtVal = getRowValue(targetRow, col);
+            if (srcVal == null && tgtVal == null) {
+                continue;
+            }
+            if (srcVal == null || tgtVal == null || !valuesEqual(srcVal, tgtVal)) {
+                Map<String, Object> pair = new LinkedHashMap<>();
+                pair.put("source", srcVal);
+                pair.put("target", tgtVal);
+                diffs.put(col, pair);
+            }
+        }
+        return diffs;
+    }
+
+    private static Map<String, Object> projectRow(Map<String, Object> row,
+                                                  List<String> compareCols,
+                                                  List<String> primaryKeys) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (primaryKeys != null) {
+            for (String pk : primaryKeys) {
+                out.put(pk, getRowValue(row, pk));
+            }
+        }
+        if (compareCols != null) {
+            for (String col : compareCols) {
+                out.put(col, getRowValue(row, col));
+            }
+        }
+        return out;
     }
 
     private static Map<String, Object> buildSideDiffEntry(String type, List<String> primaryKeys, Map<String, Object> row) {

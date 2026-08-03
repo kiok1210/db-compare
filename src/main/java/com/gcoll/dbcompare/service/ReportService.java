@@ -397,6 +397,8 @@ public class ReportService {
         List<Map<String, Object>> amountDiffTables = new ArrayList<>();
         List<Map<String, Object>> hashDiffTables = new ArrayList<>();
         List<Map<String, Object>> indexDiffTables = new ArrayList<>();
+        // 全部表（含条数一致），供条数卡片在无差异时仍可打开列表做详细比对
+        List<Map<String, Object>> allTables = new ArrayList<>();
 
         // 提取函数/过程比对结果
         boolean functionConsistent = true;
@@ -417,6 +419,26 @@ public class ReportService {
             }
 
             Boolean consistent = (Boolean) tableResult.get("consistent");
+
+            // 全表清单（无论是否一致），便于条数一致时下钻详细比对
+            Map<String, Object> allRow = new LinkedHashMap<>();
+            allRow.put("table", key);
+            Object countObjAll = tableResult.get("count");
+            if (countObjAll instanceof Map) {
+                Map<String, Object> cmAll = (Map<String, Object>) countObjAll;
+                allRow.put("sourceCount", cmAll.get("sourceCount"));
+                allRow.put("targetCount", cmAll.get("targetCount"));
+                allRow.put("diff", cmAll.get("diff"));
+                allRow.put("countConsistent", cmAll.get("consistent"));
+            } else {
+                allRow.put("sourceCount", "-");
+                allRow.put("targetCount", "-");
+                allRow.put("diff", 0);
+                allRow.put("countConsistent", true);
+            }
+            allRow.put("consistent", consistent);
+            allTables.add(allRow);
+
             if (consistent != null && consistent) {
                 consistentCount++;
                 consistentTableList.add(key);
@@ -507,6 +529,7 @@ public class ReportService {
         stats.put("amountDiffTables", amountDiffTables);
         stats.put("hashDiffTables", hashDiffTables);
         stats.put("indexDiffTables", indexDiffTables);
+        stats.put("allTables", allTables);
         
         return stats;
     }
@@ -910,7 +933,8 @@ public class ReportService {
             .append("        <div class='dim-title'>索引差异</div>\n")
             .append("        <div class='dim-val ").append(indexDiffCount > 0 ? "danger" : "success").append("'>").append(indexDiffCount).append("</div>\n")
             .append("      </div>\n")
-            .append("    </div>\n");
+            .append("    </div>\n")
+            .append("    <p style='font-size:.8rem;color:#64748b;margin:8px 0 0;'>提示：条数一致时仍可能存在状态/业务日期/金额等行级差异，可在下方结果表对任意表点「详细比对」。</p>\n");
         
         // ECharts 图表
         html.append("    <div class='chart-wrap'>\n")
@@ -1062,6 +1086,7 @@ public class ReportService {
             .append("            <th>金额SUM</th>\n")
             .append("            <th>行Hash</th>\n")
             .append("            <th>状态</th>\n")
+            .append("            <th style=\"width:110px;\">操作</th>\n")
             .append("          </tr>\n")
             .append("        </thead>\n")
             .append("        <tbody>\n");
@@ -1181,12 +1206,16 @@ public class ReportService {
                 .append("            <td><span class='pill ").append("consistent".equals(amountClass) ? "pill-ok" : "pill-ng").append("'>").append(amountDisplay).append("</span></td>\n")
                 .append("            <td><span class='pill ").append(hashPillClass).append("'>").append(hashDisplay).append("</span></td>\n")
                 .append("            <td><span class='pill ").append(pillClass).append("'>").append(statusText).append("</span></td>\n")
+                .append("            <td onclick='event.stopPropagation()'>\n")
+                .append("              <button type='button' class='btn-row-diff' data-table='")
+                .append(escapeHtml(tableName)).append("'>详细比对</button>\n")
+                .append("            </td>\n")
                 .append("          </tr>\n");
             
             // 详细差异内容（可展开）
             if (consistent == null || !consistent) {
                 html.append("          <tr class='detail-content' id='detail-").append(tableName).append("'>\n")
-                    .append("            <td colspan='7'>\n");
+                    .append("            <td colspan='8'>\n");
                 if (countInfo instanceof Map && countInfo.get("sourceCount") != null) {
                     Object diffVal = countInfo.get("diff");
                     String diffStr = diffVal == null ? "" : formatDiff(diffVal);
@@ -1377,6 +1406,7 @@ public class ReportService {
             .append("      dimData['amount'] = ").append(toJson((List<Map<String, Object>>) stats.get("amountDiffTables"))).append(";\n")
             .append("      dimData['hash'] = ").append(toJson((List<Map<String, Object>>) stats.get("hashDiffTables"))).append(";\n")
             .append("      dimData['index'] = ").append(toJson((List<Map<String, Object>>) stats.get("indexDiffTables"))).append(";\n")
+            .append("      dimData['all'] = ").append(toJson((List<Map<String, Object>>) stats.get("allTables"))).append(";\n")
             .append("      var srcSchema = '").append(escapeHtml(srcSchema)).append("';\n")
             .append("      var tgtSchema = '").append(escapeHtml(tgtSchema)).append("';\n")
             .append("      var compareTaskId = ").append(task.getId() != null ? task.getId() : 0).append(";\n");
@@ -1404,42 +1434,60 @@ public class ReportService {
             .append("        footer.innerHTML = '';\n")
             .append("        toolbar.classList.remove('show');\n")
             .append("        toolbar.innerHTML = '';\n")
+            .append("        // 条数无差异时回退展示全部表，便于详细比对（状态等行级差异）\n")
+            .append("        if (type === 'count' && data.length === 0 && (dimData['all'] || []).length > 0) {\n")
+            .append("          data = dimData['all'];\n")
+            .append("          document.getElementById('modalTitle').textContent = '全部表（条数一致，可详细比对）';\n")
+            .append("        }\n")
             .append("        if (data.length === 0) {\n")
             .append("          body.innerHTML = '<p style=\"color:var(--gray);text-align:center;padding:20px;\">无差异</p>';\n")
             .append("        } else {\n")
             .append("          var h = '<p style=\"font-size:.82rem;color:var(--gray);margin-bottom:12px;\">源库: <strong>' + srcSchema + '</strong> &nbsp;|&nbsp; 目标库: <strong>' + tgtSchema + '</strong></p>';\n")
             .append("          if (type === 'count') {\n")
-            .append("            toolbar.innerHTML = '<span class=\"hint\">勾选后提取为同步草稿（不会自动运行）</span>' +\n")
-            .append("              '<button type=\"button\" class=\"btn-extract\" id=\"extractCountBtn\" data-dbcompare-extract=\"1\" ' +\n")
-            .append("              'onclick=\"event.preventDefault();event.stopPropagation();' +\n")
-            .append("              'if(window.extractCountDiffSync){window.extractCountDiffSync(event);}return false;\">提取为同步任务</button>';\n")
-            .append("            toolbar.classList.add('show');\n")
-            .append("            h += '<div style=\"margin-bottom:10px;display:flex;gap:12px;align-items:center;font-size:.82rem;\"><label style=\"cursor:pointer;\"><input type=\"checkbox\" id=\"countSelectAll\" checked onchange=\"toggleCountSelectAll(this.checked)\"> 全选</label><span class=\"hint\" id=\"countSelHint\"></span></div>';\n")
-            .append("            h += '<table class=\"modal-tbl\"><thead><tr><th style=\"width:36px;\"></th><th>表名</th><th>源库条数</th><th>目标库条数</th><th>差异</th><th class=\"th-row-diff\" style=\"width:110px;\">操作</th></tr></thead><tbody>';\n")
-            .append("            data.forEach(function(d) {\n")
-            .append("              h += '<tr><td><input type=\"checkbox\" class=\"count-tbl-cb\" value=\"' + esc(d.table) + '\" checked onchange=\"updateCountSelHint()\"></td><td><strong>' + esc(d.table) + '</strong></td><td class=\"m-src\">' + d.sourceCount + '</td><td class=\"m-tgt\">' + d.targetCount + '</td><td class=\"m-diff\">' + fmtDiff(d.diff) + '</td><td><button type=\"button\" class=\"btn-row-diff\" data-table=\"' + esc(d.table) + '\">查看差异数据</button></td></tr>';\n")
-            .append("            });\n")
+            .append("            var hasCountDiff = (dimData['count'] || []).length > 0;\n")
+            .append("            if (hasCountDiff) {\n")
+            .append("              toolbar.innerHTML = '<span class=\"hint\">勾选后提取为同步草稿（不会自动运行）；也可对单表「详细比对」</span>' +\n")
+            .append("                '<button type=\"button\" class=\"btn-extract\" id=\"extractCountBtn\" data-dbcompare-extract=\"1\" ' +\n")
+            .append("                'onclick=\"event.preventDefault();event.stopPropagation();' +\n")
+            .append("                'if(window.extractCountDiffSync){window.extractCountDiffSync(event);}return false;\">提取为同步任务</button>';\n")
+            .append("              toolbar.classList.add('show');\n")
+            .append("              h += '<div style=\"margin-bottom:10px;display:flex;gap:12px;align-items:center;font-size:.82rem;\"><label style=\"cursor:pointer;\"><input type=\"checkbox\" id=\"countSelectAll\" checked onchange=\"toggleCountSelectAll(this.checked)\"> 全选</label><span class=\"hint\" id=\"countSelHint\"></span></div>';\n")
+            .append("              h += '<table class=\"modal-tbl\"><thead><tr><th style=\"width:36px;\"></th><th>表名</th><th>源库条数</th><th>目标库条数</th><th>差异</th><th class=\"th-row-diff\" style=\"width:110px;\">操作</th></tr></thead><tbody>';\n")
+            .append("              data.forEach(function(d) {\n")
+            .append("                h += '<tr><td><input type=\"checkbox\" class=\"count-tbl-cb\" value=\"' + esc(d.table) + '\" checked onchange=\"updateCountSelHint()\"></td><td><strong>' + esc(d.table) + '</strong></td><td class=\"m-src\">' + d.sourceCount + '</td><td class=\"m-tgt\">' + d.targetCount + '</td><td class=\"m-diff\">' + fmtDiff(d.diff) + '</td><td><button type=\"button\" class=\"btn-row-diff\" data-table=\"' + esc(d.table) + '\">详细比对</button></td></tr>';\n")
+            .append("              });\n")
+            .append("            } else {\n")
+            .append("              toolbar.innerHTML = '<span class=\"hint\">条数均一致，仍可对下表做「详细比对」检查状态/业务日期/金额等行级差异</span>';\n")
+            .append("              toolbar.classList.add('show');\n")
+            .append("              h += '<table class=\"modal-tbl\"><thead><tr><th>表名</th><th>源库条数</th><th>目标库条数</th><th>差异</th><th class=\"th-row-diff\" style=\"width:110px;\">操作</th></tr></thead><tbody>';\n")
+            .append("              data.forEach(function(d) {\n")
+            .append("                h += '<tr><td><strong>' + esc(d.table) + '</strong></td><td class=\"m-src\">' + d.sourceCount + '</td><td class=\"m-tgt\">' + d.targetCount + '</td><td class=\"m-diff\">' + fmtDiff(d.diff) + '</td><td><button type=\"button\" class=\"btn-row-diff\" data-table=\"' + esc(d.table) + '\">详细比对</button></td></tr>';\n")
+            .append("              });\n")
+            .append("            }\n")
             .append("            h += '</tbody></table>';\n")
             .append("          } else if (type === 'amount') {\n")
-            .append("            h += '<table class=\"modal-tbl\"><thead><tr><th>表名</th><th>差异字段</th></tr></thead><tbody>';\n")
+            .append("            h += '<table class=\"modal-tbl\"><thead><tr><th>表名</th><th>差异字段</th><th style=\"width:110px;\">操作</th></tr></thead><tbody>';\n")
             .append("            data.forEach(function(d) {\n")
-            .append("              h += '<tr><td><strong>' + esc(d.table) + '</strong></td><td>' + esc(d.diffFields || '') + '</td></tr>';\n")
+            .append("              h += '<tr><td><strong>' + esc(d.table) + '</strong></td><td>' + esc(d.diffFields || '') + '</td>' +\n")
+            .append("                '<td><button type=\"button\" class=\"btn-row-diff\" data-table=\"' + esc(d.table) + '\">详细比对</button></td></tr>';\n")
             .append("            });\n")
             .append("            h += '</tbody></table>';\n")
             .append("          } else if (type === 'hash') {\n")
-            .append("            h += '<table class=\"modal-tbl\"><thead><tr><th>表名</th><th>源Hash</th><th>目标Hash</th></tr></thead><tbody>';\n")
+            .append("            h += '<table class=\"modal-tbl\"><thead><tr><th>表名</th><th>源Hash</th><th>目标Hash</th><th style=\"width:110px;\">操作</th></tr></thead><tbody>';\n")
             .append("            data.forEach(function(d) {\n")
-            .append("              h += '<tr><td><strong>' + esc(d.table) + '</strong></td><td class=\"m-src\">' + d.sourceHash + '</td><td class=\"m-tgt\">' + d.targetHash + '</td></tr>';\n")
+            .append("              h += '<tr><td><strong>' + esc(d.table) + '</strong></td><td class=\"m-src\">' + d.sourceHash + '</td><td class=\"m-tgt\">' + d.targetHash + '</td>' +\n")
+            .append("                '<td><button type=\"button\" class=\"btn-row-diff\" data-table=\"' + esc(d.table) + '\">详细比对</button></td></tr>';\n")
             .append("            });\n")
             .append("            h += '</tbody></table>';\n")
             .append("          } else if (type === 'index') {\n")
-            .append("            h += '<table class=\"modal-tbl\"><thead><tr><th>表名</th><th>差异详情</th></tr></thead><tbody>';\n")
+            .append("            h += '<table class=\"modal-tbl\"><thead><tr><th>表名</th><th>差异详情</th><th style=\"width:110px;\">操作</th></tr></thead><tbody>';\n")
             .append("            data.forEach(function(d) {\n")
             .append("              var diffs = d.diffs;\n")
             .append("              var diffHtml = '';\n")
             .append("              if (Array.isArray(diffs)) { diffHtml = diffs.map(function(x) { return esc(x); }).join('<br>'); }\n")
             .append("              else { diffHtml = esc(diffs || ''); }\n")
-            .append("              h += '<tr><td><strong>' + esc(d.table) + '</strong></td><td>' + diffHtml + '</td></tr>';\n")
+            .append("              h += '<tr><td><strong>' + esc(d.table) + '</strong></td><td>' + diffHtml + '</td>' +\n")
+            .append("                '<td><button type=\"button\" class=\"btn-row-diff\" data-table=\"' + esc(d.table) + '\">详细比对</button></td></tr>';\n")
             .append("            });\n")
             .append("            h += '</tbody></table>';\n")
             .append("          }\n")

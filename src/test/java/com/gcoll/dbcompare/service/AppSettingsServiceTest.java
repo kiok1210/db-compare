@@ -41,6 +41,8 @@ class AppSettingsServiceTest {
         assertEquals(1000, s.getCompareBatchSize());
         assertEquals("insert", s.getDataxWriteMode());
         assertEquals("AUTO", s.getDataxClearMode());
+        assertEquals(4, s.getDataxChannel());
+        assertEquals(1, s.getDataxMaxConcurrent());
     }
 
     @Test
@@ -81,5 +83,15 @@ class AppSettingsServiceTest {
         assertEquals(30000, out.getSyncDeleteBatchSize());
         assertEquals(500, out.getCompareBatchSize());
         assertEquals("replace", out.getDataxWriteMode());
+    }
+
+    @Test
+    void normalize_dataxConcurrencyClamped() {
+        AppSettings in = new AppSettings();
+        in.setDataxChannel(99);
+        in.setDataxMaxConcurrent(9);
+        AppSettings out = AppSettingsService.normalize(in);
+        assertEquals(16, out.getDataxChannel());
+        assertEquals(3, out.getDataxMaxConcurrent());
     }
 }

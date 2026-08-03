@@ -148,6 +148,12 @@
                                 <p class="mode-desc">调用本机官方 DataX；大表推荐。清表慢时可在参数设置选「不清空 + replace」。</p>
                             </div>
                         </div>
+                        <div class="col-md-6">
+                            <div class="mode-card" data-mode="HYBRID" onclick="selectSyncMode(this)">
+                                <div class="mode-title">混合模式</div>
+                                <p class="mode-desc">按表估算行数自动切换：≥100 万且已配置 DataX → DataX；否则普通 DML 全量（DELETE+INSERT）。</p>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="section-title mb-2">表范围</div>
@@ -277,6 +283,7 @@
             if (mode === 'FULL_DDL') return 'DDL 全量（CREATE LIKE / TRUNCATE）';
             if (mode === 'INCREMENTAL') return '仅插入（INSERT IGNORE）';
             if (mode === 'DATAX') return 'DataX 工具同步';
+            if (mode === 'HYBRID') return '混合（≥百万 DataX / 否则普通）';
             return 'DML 全量（分批 DELETE + INSERT）';
         }
 
@@ -542,6 +549,10 @@
                 warn = '<div class="alert alert-info mb-3" style="font-size:.82rem;"><strong>仅插入：</strong>不会清空目标表；主键冲突行将被跳过（INSERT IGNORE），不更新已有行。</div>';
             } else if (selectedSyncMode === 'FULL_DDL') {
                 warn = '<div class="alert alert-warning mb-3" style="font-size:.82rem;"><strong>DDL 全量：</strong>需要目标库 CREATE / RENAME / DROP 或 TRUNCATE 权限。无权限时会回退到 DML 分批 DELETE。</div>';
+            } else if (selectedSyncMode === 'DATAX') {
+                warn = '<div class="alert alert-info mb-3" style="font-size:.82rem;"><strong>DataX：</strong>调用本机 DataX；请先在参数设置配置安装目录。</div>';
+            } else if (selectedSyncMode === 'HYBRID') {
+                warn = '<div class="alert alert-info mb-3" style="font-size:.82rem;"><strong>混合模式：</strong>单表估算≥100 万行且已配置 DataX 时走 DataX；否则普通 DML 全量（分批 DELETE + INSERT）。行数来自 information_schema（MySQL/GoldenDB）。</div>';
             } else {
                 warn = '<div class="alert alert-warning mb-3" style="font-size:.82rem;"><strong>DML 全量：</strong>将分批 DELETE 目标表后写入。差异请用「差异同步」；增量请用「增量同步」。</div>';
             }

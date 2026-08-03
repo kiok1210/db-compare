@@ -1,9 +1,65 @@
 {
-  "version": "1.2.76",
-  "frontendVersion": "1.2.76",
-  "backendVersion": "1.2.76",
+  "version": "1.2.82",
+  "frontendVersion": "1.2.82",
+  "backendVersion": "1.2.82",
   "schemaVersion": 6,
   "releases": [
+    {
+      "version": "1.2.82",
+      "date": "2026-07-30",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 限流防 OOM：默认同时仅 1 个 DataX 进程（可配 1–3），通道默认 4、上限 16，并按并发均分全局通道预算；channel=1 时不再设 splitPk；排队时进度日志提示"
+      ]
+    },
+    {
+      "version": "1.2.81",
+      "date": "2026-07-27",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "同步新增「混合模式」：单表估算≥100 万行且已配置 DataX 时自动走 DataX，否则普通 DML 全量（DELETE+INSERT）；进度日志标明每表路由决策"
+      ]
+    },
+    {
+      "version": "1.2.80",
+      "date": "2026-07-27",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "详细比对定位 SQL：改为主键 IN 批量生成（超大分段），SELECT 仅含主键+实际差异字段；报告顶部统一展示可复制，不再逐行拆分"
+      ]
+    },
+    {
+      "version": "1.2.79",
+      "date": "2026-07-27",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复比对「手动勾选」：勾选状态写入模型并在提交时生效（此前空 include 会退回全表）；确认页展示已选表预览；返回上一步不再重置勾选",
+        "表范围「全部表」支持包含规则（%/* 通配）；通配符解析支持中文逗号与 *→%",
+        "条数一致时点击「条数差异」仍可打开全表列表做「详细比对」"
+      ]
+    },
+    {
+      "version": "1.2.78",
+      "date": "2026-07-27",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "详细比对入口放开：结果表任意表可点「详细比对」（不依赖条数差异）；金额/Hash/索引弹窗同样可下钻，便于发现条数一致但状态等字段不一致的行"
+      ]
+    },
+    {
+      "version": "1.2.77",
+      "date": "2026-07-27",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "指定表详细比对：自动画像主键/索引/状态/业务日期/金额关注列，定位差异行（仅源/仅目标/字段不一致），并可视化生成源·目标定位 SQL（可复制）"
+      ]
+    },
     {
       "version": "1.2.76",
       "date": "2026-07-23",

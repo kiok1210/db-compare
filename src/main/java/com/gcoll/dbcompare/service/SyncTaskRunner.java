@@ -15,6 +15,7 @@ import com.gcoll.dbcompare.service.datax.DataxClearMode;
 import com.gcoll.dbcompare.service.datax.DataxLogMonitor;
 import com.gcoll.dbcompare.service.datax.DataxSyncService;
 import com.gcoll.dbcompare.service.datax.DataxWriteMode;
+import com.gcoll.dbcompare.service.datax.SyncHybridRouter;
 import com.gcoll.dbcompare.sql.DatabaseDialect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -361,15 +362,15 @@ public class SyncTaskRunner {
                                 rowCount = batchUpsertByPrimaryKey(conns, srcQualified, tgtQualified,
                                         columns, primaryKeys, sourceDbType, targetDbType, syncBatchSize,
                                         tableTag, task, lastSaveTime);
-                            } else if (task.isDataxMode()) {
+                            } else if (shouldRunDatax(task, estimatedRows, tableTag, taskId)) {
                                 result.phase = "datax";
                                 checkCancel(taskId, "datax", false);
                                 AppSettings dataxSettings = appSettingsService.getSettings();
                                 String clearMode = DataxClearMode.normalize(dataxSettings.getDataxClearMode());
                                 String writeMode = DataxWriteMode.normalize(dataxSettings.getDataxWriteMode());
                                 updateTaskDetail(task, lastSaveTime, tableTag + " · DataX 同步");
-                                log.info("{} DataX 工具同步: table={}, pk={}, clearMode={}, writeMode={}",
-                                        tableTag, fPureTableName, primaryKeys, clearMode, writeMode);
+                                log.info("{} DataX 工具同步: table={}, pk={}, clearMode={}, writeMode={}, hybrid={}",
+                                        tableTag, fPureTableName, primaryKeys, clearMode, writeMode, task.isHybridMode());
                                 uiLog(taskId, "info", tableTag
                                         + " DataX 工具同步（mysqlreader→mysqlwriter），清表策略="
                                         + DataxClearMode.displayName(clearMode)
@@ -944,7 +945,32 @@ public class SyncTaskRunner {
         if (SyncTask.MODE_DATAX.equals(m)) {
             return "DataX 工具同步（本机 datax.py；清表默认 AUTO=TRUNCATE 失败则 DELETE）";
         }
+        if (SyncTask.MODE_HYBRID.equals(m)) {
+            return "混合：单表估算≥" + SyncHybridRouter.DATAX_ROW_THRESHOLD
+                    + " 行且已配置 DataX → DataX，否则普通 DML 全量（DELETE+INSERT）";
+        }
         return "DML 全量（分批 DELETE + 批量 INSERT）";
+    }
+
+    /**
+     * 纯 DataX 模式，或混合模式下达到百万行且已配置 DataX。
+     */
+    private boolean shouldRunDatax(SyncTask task, long estimatedRows, String tableTag, Long taskId) {
+        if (task.isDataxMode()) {
+            return true;
+        }
+        if (!task.isHybridMode()) {
+            return false;
+        }
+        AppSettings settings = appSettingsService.getSettings();
+        String home = settings != null ? settings.getDataxHome() : null;
+        boolean configured = SyncHybridRouter.isDataxConfigured(home);
+        boolean useDatax = SyncHybridRouter.shouldUseDatax(estimatedRows, home);
+        String decision = SyncHybridRouter.describeDecision(estimatedRows, useDatax, configured);
+        log.info("{} 混合模式路由: {}", tableTag, decision);
+        uiLog(taskId, useDatax ? "info" : (estimatedRows >= SyncHybridRouter.DATAX_ROW_THRESHOLD && !configured
+                ? "warn" : "info"), tableTag + " 混合模式: " + decision);
+        return useDatax;
     }
 
     /**

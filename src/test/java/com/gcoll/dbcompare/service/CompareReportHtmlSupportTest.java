@@ -33,7 +33,16 @@ class CompareReportHtmlSupportTest {
         assertTrue(out.contains("data-dbcompare-row-diff=\"1\""));
         assertTrue(out.contains("/compare/row-diff/"));
         assertTrue(out.contains("showCountRowDiff"));
-        assertTrue(out.contains("查看差异数据"));
+        assertTrue(out.contains("详细比对"));
+        assertTrue(out.contains("sourceSql"));
+        assertTrue(out.contains("fieldProfile"));
+        assertTrue(out.contains("复制源 SQL"));
+        assertTrue(out.contains("ensureDetailTableButtons"));
+        assertTrue(out.contains("条数一致也可能检出"));
+        assertTrue(out.contains("lastDimType"));
+        assertTrue(out.contains("renderLocateSql"));
+        assertTrue(out.contains("批量定位 SQL"));
+        assertTrue(out.contains("主键 IN"));
         assertTrue(out.contains("data-dbcompare-reexec=\"1\""));
         assertTrue(out.contains("/compare/reExecute/"));
         assertTrue(out.contains("reExecuteCompareFromReport"));

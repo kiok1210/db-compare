@@ -111,9 +111,23 @@ class TableFilterHelperTest {
     }
 
     @Test
-    void sqlWildcardToRegex_escapesMetaCharacters() {
-        assertEquals("\\?", TableFilterHelper.sqlWildcardToRegex("?"));
-        assertEquals("a.*b", TableFilterHelper.sqlWildcardToRegex("a%b"));
-        assertEquals("a.b", TableFilterHelper.sqlWildcardToRegex("a_b"));
+    void splitPatterns_chineseCommaAndStarWildcard() {
+        List<String> patterns = TableFilterHelper.splitPatterns("user_*，order_%");
+        assertEquals(Arrays.asList("user_%", "order_%"), patterns);
+    }
+
+    @Test
+    void filterTables_matchAllPercent_returnsAll() {
+        List<String> result = TableFilterHelper.filterTables(
+                Arrays.asList("a", "b", "c"), "%", null);
+        assertEquals(Arrays.asList("a", "b", "c"), result);
+    }
+
+    @Test
+    void filterTables_explicitSelectSubset() {
+        List<String> result = TableFilterHelper.filterTables(
+                Arrays.asList("user_info", "order_info", "product_info", "temp_log"),
+                "user_info,product_info", null);
+        assertEquals(Arrays.asList("user_info", "product_info"), result);
     }
 }

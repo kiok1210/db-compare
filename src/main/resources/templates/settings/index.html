@@ -80,10 +80,16 @@
                             <p class="mode-desc mb-0">调用本机官方 DataX；大表推荐。需配置安装目录。</p>
                         </div>
                     </div>
+                    <div class="col-md-6">
+                        <div class="mode-card" data-mode="HYBRID" role="button" tabindex="0" onclick="selectSyncMode(this)">
+                            <div class="mode-title">混合模式</div>
+                            <p class="mode-desc mb-0">≥100 万行且已配置 DataX → DataX；否则普通 DML 全量。</p>
+                        </div>
+                    </div>
                 </div>
 
                 <h5 class="fw-bold mb-3 mt-4" style="font-size:1rem;">DataX（可选）</h5>
-                <p class="text-muted mb-3" style="font-size:.8rem;">选择「DataX 工具同步」时必填。目录内应有 <code>bin/datax.py</code>（解压常为 <code>...\datax\datax</code> 嵌套一层）。详见 <code>scripts/datax/README.md</code>。</p>
+                <p class="text-muted mb-3" style="font-size:.8rem;">选择「DataX 工具同步」或「混合模式」大表时需要。目录内应有 <code>bin/datax.py</code>（解压常为 <code>...\datax\datax</code> 嵌套一层）。详见 <code>scripts/datax/README.md</code>。</p>
                 <div class="row g-3 mb-4">
                     <div class="col-md-8">
                         <label class="form-label">DataX 安装目录</label>
@@ -91,7 +97,13 @@
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">通道数</label>
-                        <input type="number" class="form-control" id="dataxChannel" min="1" max="32" value="8">
+                        <input type="number" class="form-control" id="dataxChannel" min="1" max="16" value="4">
+                        <div class="form-text">单作业通道（1–16，默认 4）；并发&gt;1 时会按全局预算下调</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">DataX 同时进程数</label>
+                        <input type="number" class="form-control" id="dataxMaxConcurrent" min="1" max="3" value="1">
+                        <div class="form-text">默认 1：表级并行时 DataX 排队，避免多 JVM 撑爆内存</div>
                     </div>
                     <div class="col-md-12">
                         <label class="form-label">DataX 清表策略</label>
@@ -185,7 +197,8 @@
             applySyncMode(s.syncDefaultMode || 'FULL_DML');
             $('#compareBatchSize').val(s.compareBatchSize);
             $('#dataxHome').val(s.dataxHome || '');
-            $('#dataxChannel').val(s.dataxChannel != null ? s.dataxChannel : 8);
+            $('#dataxChannel').val(s.dataxChannel != null ? s.dataxChannel : 4);
+            $('#dataxMaxConcurrent').val(s.dataxMaxConcurrent != null ? s.dataxMaxConcurrent : 1);
             $('#dataxClearMode').val(s.dataxClearMode || 'AUTO');
             $('#dataxWriteMode').val(s.dataxWriteMode || 'insert');
         }
@@ -199,6 +212,7 @@
                 compareBatchSize: parseInt($('#compareBatchSize').val(), 10),
                 dataxHome: ($('#dataxHome').val() || '').trim(),
                 dataxChannel: parseInt($('#dataxChannel').val(), 10),
+                dataxMaxConcurrent: parseInt($('#dataxMaxConcurrent').val(), 10),
                 dataxClearMode: $('#dataxClearMode').val() || 'AUTO',
                 dataxWriteMode: $('#dataxWriteMode').val() || 'insert'
             };

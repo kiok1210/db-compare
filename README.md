@@ -2,16 +2,16 @@
 
 基于 Spring Boot + Thymeleaf 的 Web 工具：管理数据源、全库比对、数据同步、数据浏览与报告导出。  
 支持 **MySQL / GoldenDB / PostgreSQL / Oracle / SQL Server / H2 / SQLite**。  
-当前版本：**v1.2.76**（详见 [`src/main/resources/version-changelog.json`](src/main/resources/version-changelog.json)）。
+1当前版本：**v1.2.82**（详见 [`src/main/resources/version-changelog.json`](src/main/resources/version-changelog.json)）。
 
 ---
 
-## 核心能力（v1.2.76）
+## 核心能力（v1.2.82）
 
 | 模块 | 能力 |
 |------|------|
 | **数据源** | 多库类型注册、连接测试、密码加密存储；独立 H2 库 `./data/datasource`；全量/增量 SQL 导出 |
-| **比对** | 全量 / 抽样 / 增量比对；条数、金额、行 Hash；超大表自动跳过 Hash；条数差异可查看具体行 |
+| **比对** | 全量 / 抽样 / 增量比对；条数、金额、行 Hash；超大表自动跳过 Hash；**指定表详细比对**（任意表，含条数一致时的状态等字段差异）并定位差异行，生成源·目标 SQL |
 | **同步** | DML / DDL / 增量 / PK_UPSERT / 数据传输 / 数据同步 / **DataX**；表级并行、心跳与看门狗 |
 | **报告** | 比对/同步 HTML+MD 报告；条数差异提取同步草稿；失败表一键重同步；比对任务可重新执行 |
 | **浏览** | 类 Navicat 全屏数据浏览，分页查询任意已注册数据源 |
@@ -147,6 +147,12 @@
 
 | 版本 | 要点 |
 |------|------|
+| **1.2.82** | DataX 限流：默认同时 1 进程、通道 4，避免表级并行撑爆内存 |
+| **1.2.81** | 同步混合模式：≥100 万行且已配 DataX → DataX，否则普通 DML |
+| **1.2.80** | 详细比对定位 SQL：主键 IN（分段）+ SELECT 仅主键与差异字段 |
+| **1.2.79** | 修复手动勾选表范围未生效；全部表支持包含通配；条数一致也可打开全表做详细比对 |
+| **1.2.78** | 任意表可详细比对（不依赖条数差异）；金额/Hash/索引弹窗也可下钻 |
+| **1.2.77** | 指定表详细比对：主键/索引/状态/业务日期/金额画像 + 差异行定位 + 源·目标 SQL |
 | **1.2.76** | 重新执行任务名优化：改为「原名 - 重新执行 MM-dd HH:mm」 |
 | **1.2.75** | 比对报告增加「重新执行」按钮 |
 | **1.2.74** | 条数差异支持「查看差异数据」，按主键展示仅源/仅目标行 |
@@ -178,7 +184,7 @@
 ```bash
 cd db-compare
 mvn "-Dmaven.test.skip=true" package
-java -jar target/db-compare-1.2.76.jar
+java -jar target/db-compare-1.2.82.jar
 ```
 
 访问 **http://localhost:8080/**，使用 `application.yml` 中配置的账号登录。

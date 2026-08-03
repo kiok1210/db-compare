@@ -40,6 +40,10 @@ public class SyncTask {
      * 调用本机官方 DataX（mysqlreader→mysqlwriter）做全量同步；需在参数设置中配置 DataX 安装目录。
      */
     public static final String MODE_DATAX = "DATAX";
+    /**
+     * 混合：按表估算行数自动选择。≥100 万且已配置 DataX → DataX；否则普通 DML 全量（分批 DELETE+INSERT）。
+     */
+    public static final String MODE_HYBRID = "HYBRID";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -69,7 +73,7 @@ public class SyncTask {
     @Column(columnDefinition = "TEXT")
     private String excludeTables;
 
-    /** 同步模式：FULL_DML / FULL_DDL / INCREMENTAL / PK_UPSERT / DATA_TRANSFER / DATA_SYNC / DATAX */
+    /** 同步模式：FULL_DML / FULL_DDL / INCREMENTAL / PK_UPSERT / DATA_TRANSFER / DATA_SYNC / DATAX / HYBRID */
     @Column(length = 32)
     private String syncMode = MODE_FULL_DML;
 
@@ -170,7 +174,8 @@ public class SyncTask {
             return MODE_FULL_DML;
         }
         if (MODE_FULL_DDL.equals(m) || MODE_INCREMENTAL.equals(m) || MODE_PK_UPSERT.equals(m)
-                || MODE_DATA_TRANSFER.equals(m) || MODE_DATA_SYNC.equals(m) || MODE_DATAX.equals(m)) {
+                || MODE_DATA_TRANSFER.equals(m) || MODE_DATA_SYNC.equals(m) || MODE_DATAX.equals(m)
+                || MODE_HYBRID.equals(m)) {
             return m;
         }
         return MODE_FULL_DML;
@@ -195,6 +200,9 @@ public class SyncTask {
         }
         if (MODE_DATAX.equals(m)) {
             return "DataX 工具同步";
+        }
+        if (MODE_HYBRID.equals(m)) {
+            return "混合（≥百万 DataX / 否则普通）";
         }
         return "全量（DML）";
     }
@@ -258,6 +266,10 @@ public class SyncTask {
 
     public boolean isDataxMode() {
         return MODE_DATAX.equals(normalizeMode(syncMode));
+    }
+
+    public boolean isHybridMode() {
+        return MODE_HYBRID.equals(normalizeMode(syncMode));
     }
 
     /** 不清空目标表的模式（增量插入 / 主键合并 / 数据同步） */

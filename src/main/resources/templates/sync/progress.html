@@ -174,7 +174,8 @@
                     DATA_TRANSFER: '数据传输',
                     DATA_SYNC: '差异同步',
                     FULL_DML: '全量（DML）', FULL: '全量（DML）', FULL_DDL: '全量（DDL）',
-                    PK_UPSERT: '增量同步', INCREMENTAL: '仅插入', DATAX: 'DataX 工具同步'
+                    PK_UPSERT: '增量同步', INCREMENTAL: '仅插入', DATAX: 'DataX 工具同步',
+                    HYBRID: '混合（≥百万 DataX / 否则普通）'
                 };
                 $('#infoSyncMode').text(modeMap[data.syncMode] || data.syncMode);
                 if (data.parallelThreads) $('#infoParallel').text(data.parallelThreads + '（多表并发，池上限≈此值）');

@@ -20,8 +20,13 @@ public class AppSettings {
     private int compareBatchSize = 1000;
     /** 本机 DataX 安装根目录（含 bin/datax.py）；DATAX 同步模式必填 */
     private String dataxHome = "";
-    /** DataX 通道数（1–32） */
-    private int dataxChannel = 8;
+    /** DataX 通道数（1–16，默认 4；与并发进程共同受全局预算约束） */
+    private int dataxChannel = 4;
+    /**
+     * 同时运行的 DataX 进程上限（1–3，默认 1）。
+     * 表级并行较高时，多余表会排队等槽位，避免多 JVM×多通道撑爆内存。
+     */
+    private int dataxMaxConcurrent = 1;
     /**
      * DataX 清表策略：AUTO / TRUNCATE / DELETE / DATAX_DELETE / DATAX_TRUNCATE / NONE。
      */
@@ -65,6 +70,11 @@ public class AppSettings {
     public int getDataxChannel() { return dataxChannel; }
     public void setDataxChannel(int dataxChannel) {
         this.dataxChannel = dataxChannel;
+    }
+
+    public int getDataxMaxConcurrent() { return dataxMaxConcurrent; }
+    public void setDataxMaxConcurrent(int dataxMaxConcurrent) {
+        this.dataxMaxConcurrent = dataxMaxConcurrent;
     }
 
     public String getDataxClearMode() { return dataxClearMode; }
