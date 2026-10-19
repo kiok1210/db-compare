@@ -26,12 +26,20 @@ class SyncTaskParallelTest {
     }
 
     @Test
-    void normalizeMode_acceptsHybrid() {
-        assertEquals(SyncTask.MODE_HYBRID, SyncTask.normalizeMode("hybrid"));
-        assertEquals(SyncTask.MODE_HYBRID, SyncTask.normalizeMode("HYBRID"));
+    void clampClearParallel_capsAt8() {
+        assertEquals(4, SyncTask.clampClearParallel(null));
+        assertEquals(4, SyncTask.clampClearParallel(0));
+        assertEquals(1, SyncTask.clampClearParallel(1));
+        assertEquals(8, SyncTask.clampClearParallel(8));
+        assertEquals(8, SyncTask.clampClearParallel(20));
+    }
+
+    @Test
+    void dataxClearMode_setterNormalizes() {
         SyncTask t = new SyncTask();
-        t.setSyncMode("HYBRID");
-        assertTrue(t.isHybridMode());
-        assertTrue(SyncTask.modeDisplayName("HYBRID").contains("混合"));
+        t.setDataxClearMode("parallel_delete");
+        assertEquals("PARALLEL_DELETE", t.getDataxClearMode());
+        t.setDataxClearMode("  ");
+        assertEquals(null, t.getDataxClearMode());
     }
 }

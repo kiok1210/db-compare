@@ -1,9 +1,227 @@
 {
-  "version": "1.2.82",
-  "frontendVersion": "1.2.82",
-  "backendVersion": "1.2.82",
-  "schemaVersion": 6,
+  "version": "1.2.106",
+  "frontendVersion": "1.2.106",
+  "backendVersion": "1.2.106",
+  "schemaVersion": 7,
   "releases": [
+    {
+      "version": "1.2.106",
+      "date": "2026-09-18",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "C盘清理：重复文件只校验较大候选并限制哈希数量，进度在 90% 后继续更新，避免扫完五万文件后卡住"
+      ]
+    },
+    {
+      "version": "1.2.105",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "C盘清理：修复页面脚本语法错误导致一直「加载中」；容量随页面直接显示，白名单体积改为展开后再统计"
+      ]
+    },
+    {
+      "version": "1.2.104",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "数据浏览：无数据源时显示空状态和添加入口，不再一直转圈「加载中」"
+      ]
+    },
+    {
+      "version": "1.2.103",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "C盘清理：操作按钮固定在占用说明之上并吸顶；占用目录默认收起，避免长列表把「先审计/执行清理」挤出首屏"
+      ]
+    },
+    {
+      "version": "1.2.102",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "C盘清理：标出白名单内大文件（可选勾选删除）；重复文件按 MD5 每组只留最旧一份；增加微信缓存白名单（不含聊天记录）"
+      ]
+    },
+    {
+      "version": "1.2.101",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "C盘清理：说明占用构成（Program Files/WinSxS 不清理）；Deep 增加 pip/npm/回收站等开发缓存，默认可多收回数 GB"
+      ]
+    },
+    {
+      "version": "1.2.100",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "C盘清理：明确「先审计不删除」；未勾选确认时禁用执行清理，避免只审计却以为已清理"
+      ]
+    },
+    {
+      "version": "1.2.99",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "C盘清理：审计/清理显示实时进度；按子目录与大文件列出明细；短路径与长路径去重避免 Temp 重复统计"
+      ]
+    },
+    {
+      "version": "1.2.98",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "新增独立页面「C盘清理」：先审计再确认，仅清理 Temp 等白名单缓存，不触碰文档/下载/Program Files/WinSxS"
+      ]
+    },
+    {
+      "version": "1.2.97",
+      "date": "2026-09-17",
+      "schemaVersion": 7,
+      "dbChanges": [],
+      "changes": [
+        "数据浏览：支持全选/部分勾选表与右键导出 DDL、DML；可指定目标库方言，默认导出当前数据源 SQL"
+      ]
+    },
+    {
+      "version": "1.2.96",
+      "date": "2026-08-26",
+      "schemaVersion": 7,
+      "dbChanges": [
+        "DBCOMPARE_SYNC_TASK 增加 DATAX_CLEAR_MODE、CLEAR_PARALLEL_THREADS（任务级清表策略）"
+      ],
+      "changes": [
+        "同步任务可选手动清表策略：应用侧按主键区间并行分段 DELETE；DataX 写入不再 preSql 清表；配置/确认页可选"
+      ]
+    },
+    {
+      "version": "1.2.95",
+      "date": "2026-08-25",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 进度：清表阶段显示均速/近段行每秒；写入阶段详情与日志带出 Speed MB/s、已传字节，约每秒刷新"
+      ]
+    },
+    {
+      "version": "1.2.94",
+      "date": "2026-08-25",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 清表文案改为「已删 x/总数，剩余 y」，避免把剩余行数当成进度分子"
+      ]
+    },
+    {
+      "version": "1.2.93",
+      "date": "2026-08-25",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 本表进度：清表阶段直接显示清表完成度（不再按源/目标加权卡在约 40%）；进入写入后从 50% 按源 COUNT 推进"
+      ]
+    },
+    {
+      "version": "1.2.92",
+      "date": "2026-08-25",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX preSql 清表进度：轮询目标剩余行；超时后缓慢爬升，避免长时间假死在 95%"
+      ]
+    },
+    {
+      "version": "1.2.91",
+      "date": "2026-08-25",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "数据源列表：长 JDBC URL 单行省略，操作列 sticky 固定右侧，避免按钮被挤出屏幕"
+      ]
+    },
+    {
+      "version": "1.2.90",
+      "date": "2026-08-19",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX 进度圆环：preSql 清表按目标行数估算百分比，写入按源 COUNT 真实进度；并行表汇总驱动圆环，避免长时间停在 0%"
+      ]
+    },
+    {
+      "version": "1.2.89",
+      "date": "2026-08-19",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "过滤 DataX priority/NumberFormatException 无害告警，避免 UI 误报红字"
+      ]
+    },
+    {
+      "version": "1.2.88",
+      "date": "2026-08-19",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX DELETE 恢复 writer.preSql 分批删除（提速）；先分别 COUNT 目标/源：清表批次数按目标 COUNT，写入进度按源 COUNT（全量拷源，互不混用）"
+      ]
+    },
+    {
+      "version": "1.2.87",
+      "date": "2026-08-19",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复 DataX DELETE：废除按目标 COUNT 预生成固定批 DELETE；改为应用侧 DELETE…LIMIT 循环清空目标后，DataX 全量拷源（源 6 千万 / 目标 2 千万时仍同步全部源数据）"
+      ]
+    },
+    {
+      "version": "1.2.86",
+      "date": "2026-08-19",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "修复 DataX 并发=1 时排队等槽位无心跳被 300s 误杀；COUNT/DataX 运行期定期【心跳】日志；preSql 清表阶段提示无百分比属正常；过滤 priority NumberFormatException 误报红字"
+      ]
+    },
+    {
+      "version": "1.2.85",
+      "date": "2026-08-19",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX DATAX_DELETE：生成 preSql 前先 COUNT(*) 目标表，按真实行数计算 DELETE…LIMIT 批次数（空表不生成 DELETE）"
+      ]
+    },
+    {
+      "version": "1.2.84",
+      "date": "2026-08-19",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "DataX DATAX_DELETE 取消整表 DELETE FROM：改为 writer.preSql 多条 DELETE…LIMIT（批大小复用「清表 DELETE 批次大小」，批次数按估算行数+安全余量，上限 2000）；补充 ClearMode/JobBuilder 单测"
+      ]
+    },
+    {
+      "version": "1.2.83",
+      "date": "2026-08-17",
+      "schemaVersion": 6,
+      "dbChanges": [],
+      "changes": [
+        "内存精简：任务库/数据源库 Hikari 默认最大 3、关 H2 AUTO_SERVER；默认关闭演示库初始化（db-compare.demo.enabled）；进度日志 LRU+条数上限；聚合比对改固定 4 线程池；清表锁用完即移除；logback INFO、Thymeleaf 缓存开启"
+      ]
+    },
     {
       "version": "1.2.82",
       "date": "2026-07-30",

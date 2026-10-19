@@ -199,6 +199,13 @@ public class SyncService {
         if (patch.getParallelThreads() != null) {
             task.setParallelThreads(SyncTask.clampParallelThreads(patch.getParallelThreads()));
         }
+        if (patch.getDataxClearMode() != null) {
+            String cm = patch.getDataxClearMode().trim();
+            task.setDataxClearMode(cm.isEmpty() ? null : cm);
+        }
+        if (patch.getClearParallelThreads() != null) {
+            task.setClearParallelThreads(SyncTask.clampClearParallel(patch.getClearParallelThreads()));
+        }
         int tableCount = 0;
         if (task.getIncludeTables() != null && !task.getIncludeTables().isEmpty()) {
             tableCount = task.getIncludeTables().split(",").length;
@@ -301,6 +308,10 @@ public class SyncService {
         progress.put("taskName", task.getTaskName());
         progress.put("syncMode", task.getSyncMode());
         progress.put("parallelThreads", SyncTask.clampParallelThreads(task.getParallelThreads()));
+        progress.put("dataxClearMode", task.getDataxClearMode());
+        progress.put("clearParallelThreads",
+                task.getClearParallelThreads() != null
+                        ? SyncTask.clampClearParallel(task.getClearParallelThreads()) : null);
         progress.put("batchSize", task.getBatchSize());
         progress.put("includeTables", task.getIncludeTables());
         progress.put("sourceSchema", task.getSourceSchema());
@@ -494,6 +505,8 @@ public class SyncService {
         newTask.setSyncMode(SyncTask.normalizeMode(original.getSyncMode()));
         newTask.setBatchSize(original.getBatchSize());
         newTask.setParallelThreads(original.getParallelThreads());
+        newTask.setDataxClearMode(original.getDataxClearMode());
+        newTask.setClearParallelThreads(original.getClearParallelThreads());
         return newTask;
     }
 

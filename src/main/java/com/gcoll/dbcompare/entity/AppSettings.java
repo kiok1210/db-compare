@@ -12,7 +12,7 @@ public class AppSettings {
     private int syncParallelThreads = 8;
     /** 同步批量 INSERT 行数 */
     private int syncBatchSize = 20000;
-    /** 同步 DML 清表每批 DELETE 行数 */
+    /** 同步清表每批 DELETE 行数（应用侧循环 DELETE，含 DataX DELETE 策略） */
     private int syncDeleteBatchSize = 50000;
     /** 新建同步默认模式：FULL_DML / FULL_DDL / INCREMENTAL */
     private String syncDefaultMode = SyncTask.MODE_FULL_DML;

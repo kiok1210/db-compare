@@ -40,6 +40,7 @@
                 <a class="nav-link text-white active" href="/sync/list">同步任务</a>
                 <a class="nav-link text-white" href="/report/list">比对报告</a>
                 <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/cleanup">C盘清理</a>
                 <a class="nav-link text-white" href="/settings">参数设置</a>
                 <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
             </div>
@@ -160,6 +161,28 @@
                             </div>
                         </div>
 
+                        <div class="card border-0 bg-light p-3 rounded-3 mb-3" id="dataxClearPanel" style="display:none;">
+                            <div class="section-title mb-2" style="font-size:.88rem;">DataX 清表（本任务）</div>
+                            <div class="mb-2">
+                                <label class="form-label">清表策略</label>
+                                <select class="form-select form-select-sm" id="dataxClearMode">
+                                    <option value="">使用全局默认</option>
+                                    <option value="AUTO">自动：TRUNCATE → DELETE</option>
+                                    <option value="PARALLEL_DELETE">并行分段 DELETE（按主键）</option>
+                                    <option value="DELETE">分批 DELETE</option>
+                                    <option value="TRUNCATE">TRUNCATE</option>
+                                    <option value="DATAX_DELETE">DataX preSql DELETE</option>
+                                    <option value="DATAX_TRUNCATE">DataX preSql TRUNCATE</option>
+                                    <option value="NONE">不清空</option>
+                                </select>
+                            </div>
+                            <div id="clearParallelWrap">
+                                <label class="form-label">清表并行度</label>
+                                <input type="number" class="form-control form-control-sm" id="clearParallelThreads" min="1" max="8" value="4" style="max-width:100px;">
+                                <div class="form-text" style="font-size:.72rem;">仅并行分段 DELETE 生效</div>
+                            </div>
+                        </div>
+
                         <div class="d-grid gap-2">
                             <button type="button" class="btn btn-outline-primary" id="saveBtn" onclick="saveDraft()">保存草稿</button>
                             <button type="button" class="btn btn-primary" id="startBtn" onclick="saveAndStart()">开始同步</button>
@@ -219,6 +242,13 @@
             $('#taskName').val(task.taskName || '');
             applyConfirmMode(task.syncMode || 'FULL_DML');
             $('#batchSize').val(task.batchSize != null ? task.batchSize : 20000);
+            if (task.dataxClearMode) {
+                $('#dataxClearMode').val(task.dataxClearMode);
+            }
+            if (task.clearParallelThreads != null) {
+                $('#clearParallelThreads').val(Math.min(8, Math.max(1, task.clearParallelThreads)));
+            }
+            $('#dataxClearMode').on('change', toggleDataxClearPanel);
             // 连接数默认=同步表数（≤20）；已保存且与默认不同视为本次临时调整
             var defConn = defaultConnCount();
             if (task.parallelThreads != null && task.parallelThreads >= 1
@@ -230,6 +260,7 @@
                 $('#parallelThreads').val(defConn);
             }
             $('#parallelThreads').on('input change', function() { parallelManual = true; });
+            toggleDataxClearPanel();
             if (task.batchSize == null) {
                 $.getJSON('/settings/api').done(function(res) {
                     if (!res || !res.settings) return;
@@ -400,7 +431,8 @@
                 FULL: 'DML 全量',
                 FULL_DDL: 'DDL 全量',
                 INCREMENTAL: '仅插入',
-                DATAX: 'DataX 工具同步'
+                DATAX: 'DataX 工具同步',
+                HYBRID: '混合（≥百万 DataX）'
             };
             return map[mode] || mode || 'DML 全量';
         }
@@ -413,7 +445,8 @@
                 FULL_DML: 'DML 全量：分批 DELETE 后 INSERT。',
                 FULL_DDL: 'DDL 全量：TRUNCATE / CREATE LIKE，需 DDL 权限。',
                 INCREMENTAL: '仅插入：INSERT IGNORE，冲突跳过、不更新已有行。',
-                DATAX: 'DataX：清表可选「DataX DELETE/TRUNCATE」（preSql，通常快于应用侧分批 DELETE）；或「不清空+replace」。'
+                DATAX: 'DataX：下方可选本任务清表策略（并行分段 DELETE 适合大表）；也可不清空+replace。',
+                HYBRID: '混合：大表走 DataX；清表策略见下方本任务选项。'
             };
             return map[mode] || '请选择同步方式。';
         }
@@ -421,6 +454,13 @@
         function selectConfirmMode(el) {
             var mode = $(el).data('mode') || 'FULL_DML';
             applyConfirmMode(mode);
+        }
+
+        function toggleDataxClearPanel() {
+            var m = $('#syncMode').val() || '';
+            var show = m === 'DATAX' || m === 'HYBRID';
+            $('#dataxClearPanel').toggle(show);
+            $('#clearParallelWrap').toggle(($('#dataxClearMode').val() || '') === 'PARALLEL_DELETE');
         }
 
         function applyConfirmMode(mode) {
@@ -432,6 +472,7 @@
             var $card = $('#syncModeCards .mode-pick[data-mode="' + m + '"]');
             if ($card.length) $card.addClass('selected');
             else $('#syncModeCards .mode-pick[data-mode="FULL_DML"]').addClass('selected');
+            toggleDataxClearPanel();
         }
 
         function showToast(msg, type) {
@@ -617,7 +658,18 @@
                 includeTables: selectedTables.join(','),
                 syncMode: $('#syncMode').val() || 'FULL_DML',
                 batchSize: parseInt($('#batchSize').val(), 10) || 20000,
-                parallelThreads: Math.min(20, Math.max(1, parseInt($('#parallelThreads').val(), 10) || defaultConnCount()))
+                parallelThreads: Math.min(20, Math.max(1, parseInt($('#parallelThreads').val(), 10) || defaultConnCount())),
+                dataxClearMode: (function() {
+                    var m = $('#syncMode').val() || '';
+                    if (m !== 'DATAX' && m !== 'HYBRID') return '';
+                    return ($('#dataxClearMode').val() || '').trim();
+                })(),
+                clearParallelThreads: (function() {
+                    var m = $('#syncMode').val() || '';
+                    if (m !== 'DATAX' && m !== 'HYBRID') return null;
+                    if (($('#dataxClearMode').val() || '') !== 'PARALLEL_DELETE') return null;
+                    return Math.min(8, Math.max(1, parseInt($('#clearParallelThreads').val(), 10) || 4));
+                })()
             };
         }
 

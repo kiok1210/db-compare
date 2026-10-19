@@ -153,6 +153,7 @@ public final class CompareReportHtmlSupport {
                 + "<a href=\"/sync/list\">同步任务</a>"
                 + "<a href=\"/report/list\">比对报告</a>"
                 + "<a href=\"/viewer\">数据浏览</a>"
+                + "<a href=\"/cleanup\">C盘清理</a>"
                 + "<a href=\"/settings\">参数设置</a>"
                 + "</div></div></nav>\n";
     }

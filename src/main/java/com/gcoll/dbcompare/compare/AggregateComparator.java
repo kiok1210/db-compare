@@ -42,9 +42,9 @@ public class AggregateComparator {
      */
     public static final long SKIP_ROW_HASH_ROW_THRESHOLD = 1_000_000L;
 
-    /** 源/目标查询并发执行线程池（每个维度最多 2 个线程，按表复用） */
+    /** 源/目标查询并发执行线程池（固定有界，避免 Cached 无线膨胀） */
     private static final AtomicInteger POOL_SEQ = new AtomicInteger(0);
-    private static final ExecutorService QUERY_POOL = Executors.newCachedThreadPool(r -> {
+    private static final ExecutorService QUERY_POOL = Executors.newFixedThreadPool(4, r -> {
         Thread t = new Thread(r, "agg-query-" + POOL_SEQ.incrementAndGet());
         t.setDaemon(true);
         return t;

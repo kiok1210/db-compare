@@ -13,20 +13,36 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 同步任务进度日志（内存环形缓冲），供进度页实时拉取。
+ * <p>
+ * 按 taskId 保有上限，任务结束后可 {@link #remove}；避免长期运行 Map 膨胀。
  */
 @Component
 public class SyncProgressLogBuffer {
 
-    private static final int MAX_PER_TASK = 800;
+    private static final int MAX_PER_TASK = 400;
+    /** 同时保有的任务日志上限（超限淘汰最旧） */
+    static final int MAX_TASKS = 24;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final ConcurrentHashMap<Long, TaskLog> byTask = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Long> lastAccessMs = new ConcurrentHashMap<>();
 
     public void clear(Long taskId) {
         if (taskId == null) {
             return;
         }
         byTask.put(taskId, new TaskLog());
+        touch(taskId);
+        evictIfNeeded();
+    }
+
+    /** 任务结束后移除，释放内存 */
+    public void remove(Long taskId) {
+        if (taskId == null) {
+            return;
+        }
+        byTask.remove(taskId);
+        lastAccessMs.remove(taskId);
     }
 
     public void append(Long taskId, String type, String message) {
@@ -34,7 +50,9 @@ public class SyncProgressLogBuffer {
             return;
         }
         TaskLog log = byTask.computeIfAbsent(taskId, id -> new TaskLog());
+        touch(taskId);
         log.add(type != null ? type : "info", message);
+        evictIfNeeded();
     }
 
     /**
@@ -45,7 +63,33 @@ public class SyncProgressLogBuffer {
         if (log == null) {
             return new ArrayList<>();
         }
+        touch(taskId);
         return log.since(sinceSeq);
+    }
+
+    int taskCount() {
+        return byTask.size();
+    }
+
+    private void touch(Long taskId) {
+        lastAccessMs.put(taskId, System.currentTimeMillis());
+    }
+
+    private void evictIfNeeded() {
+        while (byTask.size() > MAX_TASKS) {
+            Long oldest = null;
+            long oldestTs = Long.MAX_VALUE;
+            for (Map.Entry<Long, Long> e : lastAccessMs.entrySet()) {
+                if (e.getValue() < oldestTs && byTask.containsKey(e.getKey())) {
+                    oldestTs = e.getValue();
+                    oldest = e.getKey();
+                }
+            }
+            if (oldest == null) {
+                break;
+            }
+            remove(oldest);
+        }
     }
 
     private static final class TaskLog {
@@ -58,7 +102,9 @@ public class SyncProgressLogBuffer {
             row.put("seq", id);
             row.put("type", type);
             row.put("ts", LocalDateTime.now().format(TS));
-            row.put("msg", message);
+            // 截断超长行，避免单条日志撑大堆
+            String msg = message.length() > 2000 ? message.substring(0, 2000) + "…" : message;
+            row.put("msg", msg);
             lines.add(row);
             while (lines.size() > MAX_PER_TASK) {
                 lines.remove(0);

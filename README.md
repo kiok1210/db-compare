@@ -2,11 +2,11 @@
 
 基于 Spring Boot + Thymeleaf 的 Web 工具：管理数据源、全库比对、数据同步、数据浏览与报告导出。  
 支持 **MySQL / GoldenDB / PostgreSQL / Oracle / SQL Server / H2 / SQLite**。  
-1当前版本：**v1.2.82**（详见 [`src/main/resources/version-changelog.json`](src/main/resources/version-changelog.json)）。
+当前版本：**v1.2.99**（详见 [`src/main/resources/version-changelog.json`](src/main/resources/version-changelog.json)）。
 
 ---
 
-## 核心能力（v1.2.82）
+## 核心能力（v1.2.99）
 
 | 模块 | 能力 |
 |------|------|
@@ -16,7 +16,7 @@
 | **报告** | 比对/同步 HTML+MD 报告；条数差异提取同步草稿；失败表一键重同步；比对任务可重新执行 |
 | **浏览** | 类 Navicat 全屏数据浏览，分页查询任意已注册数据源 |
 | **安全** | 全站登录认证（`db-compare.security`）；未登录禁止访问页面/API/报告 |
-| **运维** | 参数设置（并行、批次、DataX 目录等）；应用内版本日志；schema 增量迁移 |
+| **运维** | 参数设置（并行、批次、DataX 目录等）；**C 盘清理**（先审计再确认的白名单缓存清理）；应用内版本日志；schema 增量迁移 |
 
 ### 同步模式一览
 
@@ -52,6 +52,7 @@
 | 比对报告 | [`docs/manual/images/11-compare-report.png`](docs/manual/images/11-compare-report.png) |
 | 同步报告 | [`docs/manual/images/12-sync-report.png`](docs/manual/images/12-sync-report.png) |
 | 同步确认 | [`docs/manual/images/13-sync-confirm.png`](docs/manual/images/13-sync-confirm.png) |
+| C盘清理 | [`docs/manual/images/14-cleanup.png`](docs/manual/images/14-cleanup.png) |
 
 ### 1. 登录
 
@@ -139,6 +140,14 @@
 
 `docs/manual/images/10-settings.png`
 
+### 9. C 盘清理
+
+独立功能页（`/cleanup`）：先审计可回收的 Temp/缓存，勾选确认后再删除。仅白名单路径，不清理文档、下载、桌面、Program Files、WinSxS。
+
+[![C盘清理](docs/manual/images/14-cleanup.png)](docs/manual/images/14-cleanup.png)
+
+`docs/manual/images/14-cleanup.png`
+
 ---
 
 ## 版本更新摘要（倒序）
@@ -147,6 +156,23 @@
 
 | 版本 | 要点 |
 |------|------|
+| **1.2.99** | C盘清理：实时进度 + 子目录/文件明细；Temp 短路径去重 |
+| **1.2.98** | 独立页面「C盘清理」：先审计再确认，白名单 Temp/缓存 |
+| **1.2.97** | 数据浏览导出 DDL/DML，可选目标库方言 |
+| **1.2.96** | 任务级并行分段 DELETE 清表；schema V7 |
+| **1.2.95** | DataX：清表行/秒；写入显示 MB/s 与已传体积 |
+| **1.2.94** | DataX 清表文案：已删/总数 + 剩余，避免误读 |
+| **1.2.93** | DataX 本表进度：清表阶段=清表完成度，不再加权卡在 ~40% |
+| **1.2.92** | DataX 清表进度：轮询剩余行，避免假死在 95% |
+| **1.2.91** | 数据源列表长 URL 省略，操作列固定可见 |
+| **1.2.90** | DataX 清表/写入百分比驱动圆环（清表估、写入按源 COUNT） |
+| **1.2.89** | 过滤 DataX priority/NumberFormatException 误报红字 |
+| **1.2.88** | DataX DELETE：preSql 清表按目标 COUNT，写入进度按源 COUNT |
+| **1.2.87** | DataX DELETE：循环清空目标后全量拷源（不按目标行数截断） |
+| **1.2.86** | DataX 排队/COUNT/运行期心跳，避免无日志被误杀；过滤 priority 误报 |
+| **1.2.85** | DataX DATAX_DELETE：先 COUNT 目标表再生成分批 DELETE preSql |
+| **1.2.84** | DataX DATAX_DELETE：preSql 分批 DELETE…LIMIT（取消整表 DELETE FROM） |
+| **1.2.83** | 内存精简：Hikari 小池、关 H2 AUTO_SERVER、默认关演示库、进度日志 LRU、有界聚合线程池 |
 | **1.2.82** | DataX 限流：默认同时 1 进程、通道 4，避免表级并行撑爆内存 |
 | **1.2.81** | 同步混合模式：≥100 万行且已配 DataX → DataX，否则普通 DML |
 | **1.2.80** | 详细比对定位 SQL：主键 IN（分段）+ SELECT 仅主键与差异字段 |
@@ -184,7 +210,7 @@
 ```bash
 cd db-compare
 mvn "-Dmaven.test.skip=true" package
-java -jar target/db-compare-1.2.82.jar
+java -jar target/db-compare-1.2.96.jar
 ```
 
 访问 **http://localhost:8080/**，使用 `application.yml` 中配置的账号登录。
@@ -196,7 +222,7 @@ java -jar target/db-compare-1.2.82.jar
 3. **比对报告** — 查看条数差异 → 提取为同步草稿 → 确认页「开始同步」  
 4. **同步任务** — 查看进度、报告与失败表重同步  
 
-演示库首次启动自动创建（约 12 表，`PUBLIC` + `SHOP`）。强制重灌：删除 `data/demo/.demo_version` 后重启。
+演示库默认**不**自动创建（降内存）。需要时在 `application.yml` 设 `db-compare.demo.enabled: true` 后重启。强制重灌：删除 `data/demo/.demo_version` 后重启。
 
 ### 配置要点
 

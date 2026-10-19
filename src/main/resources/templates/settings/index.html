@@ -18,6 +18,7 @@
                 <a class="nav-link text-white" href="/sync/list">同步任务</a>
                 <a class="nav-link text-white" href="/report/list">比对报告</a>
                 <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/cleanup">C盘清理</a>
                 <a class="nav-link text-white active" href="/settings">参数设置</a>
                 <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
             </div>
@@ -109,13 +110,13 @@
                         <label class="form-label">DataX 清表策略</label>
                         <select class="form-select" id="dataxClearMode">
                             <option value="AUTO">自动：应用侧先 TRUNCATE，失败则分批 DELETE</option>
-                            <option value="DATAX_DELETE">DataX DELETE：writer.preSql 整表删除（跳过慢分批，推荐无 DDL 时）</option>
+                            <option value="DATAX_DELETE">DataX DELETE：writer.preSql 分批 DELETE…LIMIT（按目标 COUNT 算批；写入进度按源 COUNT）</option>
                             <option value="DATAX_TRUNCATE">DataX TRUNCATE：writer.preSql（最快，需 DDL）</option>
-                            <option value="DELETE">应用侧分批 DELETE（LIMIT，大表较慢）</option>
+                            <option value="DELETE">应用侧分批 DELETE（LIMIT 循环，大表较慢）</option>
                             <option value="TRUNCATE">应用侧仅 TRUNCATE（需 DDL）</option>
                             <option value="NONE">不清空（可配合 replace）</option>
                         </select>
-                        <div class="form-text">「DataX DELETE/TRUNCATE」在 DataX 进程内执行清表，再写入；应用侧分批 DELETE 仅作兼容。</div>
+                        <div class="form-text">也可在具体同步任务（DataX）里覆盖清表策略；大表推荐任务内选「并行分段 DELETE」。</div>
                     </div>
                     <div class="col-md-12">
                         <label class="form-label">DataX 写入模式</label>
@@ -142,7 +143,7 @@
                     <div class="col-md-6">
                         <label class="form-label">清表 DELETE 批次大小</label>
                         <input type="number" class="form-control" id="syncDeleteBatchSize" min="5000" max="200000" step="1000">
-                        <div class="form-text">仅 DML 全量清表时生效</div>
+                        <div class="form-text">应用侧 DELETE 与 DataX DELETE（preSql LIMIT）共用批大小</div>
                     </div>
                 </div>
 

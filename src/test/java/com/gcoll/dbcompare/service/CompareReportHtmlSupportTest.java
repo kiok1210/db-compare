@@ -19,7 +19,9 @@ class CompareReportHtmlSupportTest {
 
         assertTrue(out.contains("data-dbcompare-nav=\"1\""));
         assertTrue(out.contains("数据库比对工具"));
-        assertTrue(out.contains("/sync/list"));
+        assertTrue(out.contains("/viewer"));
+        assertTrue(out.contains("/cleanup"));
+        assertTrue(out.contains("C盘清理"));
         assertTrue(out.contains("data-dbcompare-extract-force=\"1\""));
         assertTrue(out.contains("COMPARE_TASK_ID = 42"));
         assertTrue(out.contains("location.href"));

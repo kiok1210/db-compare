@@ -66,10 +66,37 @@ if (-not (Test-Path $dataxPy)) {
 
 function Get-PreSqlBlock([string]$tableName) {
     switch ($clearMode) {
-        'TRUNCATE' { return ('"preSql": ["TRUNCATE TABLE `' + $tableName + '`"],') }
-        'DELETE'   { return ('"preSql": ["DELETE FROM `' + $tableName + '`"],') }
-        'NONE'     { return '' }
-        default    { return ('"preSql": ["DELETE FROM `' + $tableName + '`"],') }
+        'TRUNCATE' {
+            return ('"preSql": ["TRUNCATE TABLE `' + $tableName + '`"],')
+        }
+        'NONE' {
+            return ''
+        }
+        default {
+            # DELETE / 默认：多条 DELETE … LIMIT，避免整表 DELETE FROM
+            $limit = 50000
+            if ($props.ContainsKey('DELETE_LIMIT') -and $props['DELETE_LIMIT']) {
+                $limit = [int]$props['DELETE_LIMIT']
+            }
+            $rows = 10000000L
+            if ($props.ContainsKey('ESTIMATED_ROWS') -and $props['ESTIMATED_ROWS']) {
+                $rows = [long]$props['ESTIMATED_ROWS']
+            }
+            if ($limit -le 0) { $limit = 50000 }
+            $batches = 1
+            if ($rows -gt 0) {
+                $need = [long][Math]::Ceiling($rows / [double]$limit) + 5
+                if ($need -gt 2000) { $need = 2000 }
+                if ($need -lt 1) { $need = 1 }
+                $batches = [int]$need
+            }
+            $sql = 'DELETE FROM `' + $tableName + '` LIMIT ' + $limit
+            $parts = @()
+            for ($i = 0; $i -lt $batches; $i++) {
+                $parts += ('"' + $sql + '"')
+            }
+            return ('"preSql": [' + ($parts -join ', ') + '],')
+        }
     }
 }
 

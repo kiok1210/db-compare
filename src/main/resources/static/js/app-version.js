@@ -3,7 +3,7 @@
  * FRONTEND_VERSION 需与 version-changelog.json / 后端保持一致
  */
 (function (global) {
-    var FRONTEND_VERSION = '1.2.82';
+    var FRONTEND_VERSION = '1.2.106';
     var versionInfo = null;
     var modalReady = false;
 

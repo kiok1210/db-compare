@@ -5,10 +5,16 @@ spring:
 
   # 任务库（比对/同步任务、AppMeta、参数等）— 可随程序升级；勿与数据源库混用
   datasource:
-    url: jdbc:h2:file:./data/dbcompare;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    url: jdbc:h2:file:./data/dbcompare;DB_CLOSE_DELAY=-1;AUTO_SERVER=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+      idle-timeout: 60000
+      max-lifetime: 600000
+      connection-timeout: 15000
 
   # JPA配置（主库）
   jpa:
@@ -16,9 +22,15 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: false
+    open-in-view: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
+        jdbc:
+          batch_size: 50
+        query:
+          plan_cache_max_size: 64
+          plan_parameter_metadata_max_size: 32
 
   # 关闭 Boot 默认仓库扫描（否则会与 AppJpaConfig / DatasourceStoreJpaConfig 重复注册）
   data:
@@ -32,7 +44,7 @@ spring:
     suffix: .html
     mode: HTML
     encoding: UTF-8
-    cache: false  # 开发时关闭缓存
+    cache: true
 
 # 服务器配置
 server:
@@ -53,6 +65,9 @@ logging:
 
 # 应用自定义配置
 db-compare:
+  # 演示库初始化（默认关闭，降低启动内存；需要时设 true）
+  demo:
+    enabled: false
   # 登录认证（默认开启；未登录禁止访问任何页面/API/报告）
   security:
     enabled: true
@@ -61,7 +76,7 @@ db-compare:
     password: "DbC0mpare#2026!Xk9$mQ7"
   # 数据源配置独立库（./data/datasource.mv.db）— 内网请保留，同步程序时不要覆盖
   datasource-store:
-    url: jdbc:h2:file:./data/datasource;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    url: jdbc:h2:file:./data/datasource;DB_CLOSE_DELAY=-1;AUTO_SERVER=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password:

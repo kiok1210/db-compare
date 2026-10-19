@@ -8,6 +8,7 @@ import com.gcoll.dbcompare.ds.DatasourceConfigRepository;
 import com.gcoll.dbcompare.util.CredentialEncryptor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -29,6 +30,7 @@ import java.util.Random;
  * 便于报告页手动测试「提取为同步任务」。
  */
 @Component
+@ConditionalOnProperty(prefix = "db-compare.demo", name = "enabled", havingValue = "true")
 @Slf4j
 public class DemoDataInitializer {
 
@@ -97,12 +99,12 @@ public class DemoDataInitializer {
                 log.info("注册演示数据源...");
                 h2Source = createDataSource(
                         "演示H2源库", DatabaseType.H2,
-                        "jdbc:h2:file:" + new File(H2_DB_PATH).getAbsolutePath() + ";DB_CLOSE_DELAY=-1",
+                        "jdbc:h2:file:" + new File(H2_DB_PATH).getAbsolutePath() + ";DB_CLOSE_DELAY=0;AUTO_SERVER=FALSE",
                         "org.h2.Driver", "sa", "", "PUBLIC",
                         "H2演示源库（PUBLIC+SHOP 共12表）");
                 h2Target = createDataSource(
                         "演示H2目标库", DatabaseType.H2,
-                        "jdbc:h2:file:" + new File(H2_DB_PATH2).getAbsolutePath() + ";DB_CLOSE_DELAY=-1",
+                        "jdbc:h2:file:" + new File(H2_DB_PATH2).getAbsolutePath() + ";DB_CLOSE_DELAY=0;AUTO_SERVER=FALSE",
                         "org.h2.Driver", "sa", "", "PUBLIC",
                         "H2演示目标库（多表条数差异，供提取同步测试）");
                 sqliteSource = createDataSource(
@@ -174,7 +176,7 @@ public class DemoDataInitializer {
     }
 
     private void createH2DemoDb(String dbPath, boolean isSource) throws Exception {
-        String url = "jdbc:h2:file:" + new File(dbPath).getAbsolutePath() + ";DB_CLOSE_DELAY=-1";
+        String url = "jdbc:h2:file:" + new File(dbPath).getAbsolutePath() + ";DB_CLOSE_DELAY=0;AUTO_SERVER=FALSE";
         try (Connection conn = DriverManager.getConnection(url, "sa", "");
              Statement stmt = conn.createStatement()) {
 

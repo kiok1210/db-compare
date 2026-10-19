@@ -47,4 +47,24 @@ class SyncProgressLogBufferTest {
         SyncProgressLogBuffer buffer = new SyncProgressLogBuffer();
         assertTrue(buffer.since(999L, 0).isEmpty());
     }
+
+    @Test
+    void remove_dropsTaskEntry() {
+        SyncProgressLogBuffer buffer = new SyncProgressLogBuffer();
+        buffer.append(1L, "info", "a");
+        buffer.remove(1L);
+        assertTrue(buffer.since(1L, 0).isEmpty());
+        assertEquals(0, buffer.taskCount());
+    }
+
+    @Test
+    void append_evictsOldestWhenOverMaxTasks() {
+        SyncProgressLogBuffer buffer = new SyncProgressLogBuffer();
+        for (long i = 1; i <= SyncProgressLogBuffer.MAX_TASKS + 5; i++) {
+            buffer.append(i, "info", "t" + i);
+        }
+        assertTrue(buffer.taskCount() <= SyncProgressLogBuffer.MAX_TASKS);
+        assertTrue(buffer.since(1L, 0).isEmpty());
+        assertTrue(!buffer.since(SyncProgressLogBuffer.MAX_TASKS + 5L, 0).isEmpty());
+    }
 }

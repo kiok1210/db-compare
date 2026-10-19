@@ -87,6 +87,19 @@ public class SyncTask {
     @Column
     private Integer parallelThreads;
 
+    /**
+     * 本任务 DataX 清表策略（覆盖全局参数）；空则用 AppSettings.dataxClearMode。
+     * @see com.gcoll.dbcompare.service.datax.DataxClearMode
+     */
+    @Column(length = 32)
+    private String dataxClearMode;
+
+    /** 清表并行度（PARALLEL_DELETE；1–8，默认 4） */
+    public static final int MAX_CLEAR_PARALLEL = 8;
+
+    @Column
+    private Integer clearParallelThreads;
+
     @Column(nullable = false)
     private String status = STATUS_PENDING;
 
@@ -144,6 +157,9 @@ public class SyncTask {
             this.batchSize = 20000;
         }
         this.parallelThreads = clampParallelThreads(this.parallelThreads);
+        if (this.clearParallelThreads != null) {
+            this.clearParallelThreads = clampClearParallel(this.clearParallelThreads);
+        }
         this.syncMode = normalizeMode(this.syncMode);
     }
 
@@ -152,6 +168,13 @@ public class SyncTask {
             return 8;
         }
         return Math.min(MAX_PARALLEL_THREADS, n);
+    }
+
+    public static int clampClearParallel(Integer n) {
+        if (n == null || n < 1) {
+            return 4;
+        }
+        return Math.min(MAX_CLEAR_PARALLEL, n);
     }
 
     /**
@@ -246,6 +269,21 @@ public class SyncTask {
     public void setParallelThreads(Integer parallelThreads) {
         // 允许 null 表示「未指定」，由 createDraft 按表数填充；入库前 onCreate 再 clamp
         this.parallelThreads = parallelThreads == null ? null : clampParallelThreads(parallelThreads);
+    }
+
+    public String getDataxClearMode() { return dataxClearMode; }
+    public void setDataxClearMode(String dataxClearMode) {
+        if (dataxClearMode == null || dataxClearMode.trim().isEmpty()) {
+            this.dataxClearMode = null;
+        } else {
+            this.dataxClearMode = dataxClearMode.trim().toUpperCase();
+        }
+    }
+
+    public Integer getClearParallelThreads() { return clearParallelThreads; }
+    public void setClearParallelThreads(Integer clearParallelThreads) {
+        this.clearParallelThreads = clearParallelThreads == null
+                ? null : clampClearParallel(clearParallelThreads);
     }
 
     public boolean isIncrementalMode() {

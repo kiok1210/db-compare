@@ -43,6 +43,7 @@ class SchemaScriptMigratorTest {
     @Test
     void parseVersion_ok() {
         assertEquals(6, SchemaScriptMigrator.parseVersion("V6__current_table_min_len.sql"));
+        assertEquals(7, SchemaScriptMigrator.parseVersion("V7__sync_task_clear_options.sql"));
         assertEquals(12, SchemaScriptMigrator.parseVersion("V12__foo.sql"));
         assertEquals(-1, SchemaScriptMigrator.parseVersion("readme.sql"));
         assertEquals(-1, SchemaScriptMigrator.parseVersion(null));
@@ -67,19 +68,19 @@ class SchemaScriptMigratorTest {
     }
 
     @Test
-    void apply_executesClasspathV6AndSavesVersion() throws Exception {
+    void apply_executesClasspathV7AndSavesVersion() throws Exception {
         when(dataSource.getConnection()).thenReturn(connection);
         when(connection.createStatement()).thenReturn(statement);
         when(appMetaRepository.findById(AppMeta.KEY_SCHEMA_VERSION)).thenReturn(Optional.empty());
         when(appMetaRepository.save(any(AppMeta.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        List<Integer> applied = migrator.apply(5, 6);
+        List<Integer> applied = migrator.apply(6, 7);
 
-        assertEquals(Collections.singletonList(6), applied);
+        assertEquals(Collections.singletonList(7), applied);
         verify(statement, atLeastOnce()).execute(anyString());
         ArgumentCaptor<AppMeta> cap = ArgumentCaptor.forClass(AppMeta.class);
         verify(appMetaRepository).save(cap.capture());
-        assertEquals("6", cap.getValue().getMetaValue());
+        assertEquals("7", cap.getValue().getMetaValue());
     }
 
     @Test

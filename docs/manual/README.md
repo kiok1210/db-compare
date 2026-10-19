@@ -19,6 +19,7 @@
 | 比对报告 | [`docs/manual/images/11-compare-report.png`](images/11-compare-report.png) |
 | 同步报告 | [`docs/manual/images/12-sync-report.png`](images/12-sync-report.png) |
 | 同步确认页 | [`docs/manual/images/13-sync-confirm.png`](images/13-sync-confirm.png) |
+| C盘清理 | [`docs/manual/images/14-cleanup.png`](images/14-cleanup.png) |
 
 ## 重新生成
 

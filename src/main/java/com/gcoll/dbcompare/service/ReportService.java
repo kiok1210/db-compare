@@ -251,6 +251,7 @@ public class ReportService {
                 + "<a class=\"nav-link text-white\" href=\"/sync/list\">同步任务</a>"
                 + "<a class=\"nav-link text-white active\" href=\"/report/list?tab=sync\">比对报告</a>"
                 + "<a class=\"nav-link text-white\" href=\"/viewer\">数据浏览</a>"
+                + "<a class=\"nav-link text-white\" href=\"/cleanup\">C盘清理</a>"
                 + "<a class=\"nav-link text-white\" href=\"/settings\">参数设置</a>"
                 + "</div></div></nav>"
                 + "<div class=\"rpt-wrap\">"

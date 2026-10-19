@@ -101,6 +101,8 @@ public class DataViewerService {
                 result.put("schemas", schemas);
                 result.put("total", schemas.size());
                 result.put("defaultSchema", defaultSchema);
+                result.put("dbType", dbType != null ? dbType.name() : "");
+                result.put("dbTypeLabel", dbType != null ? dbType.getDisplayName() : "");
             }
         } catch (Exception e) {
             log.error("获取schema列表失败: dsId={}", dsId, e);

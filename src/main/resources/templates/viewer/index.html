@@ -59,7 +59,69 @@
             color: #475569;
             background: #f8fafc;
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
         }
+        .sidebar .sb-header .sb-title { display: flex; align-items: center; gap: 8px; }
+        .tbl-check, .row-check, .th-check {
+            width: 14px;
+            height: 14px;
+            accent-color: #4f46e5;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .tbl-item.checked { background: #eef2ff; }
+        .data-table tbody tr.row-selected td { background: #eef2ff; }
+        .data-table tbody tr { cursor: context-menu; }
+        .ctx-menu {
+            position: fixed;
+            z-index: 2100;
+            min-width: 188px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, .16);
+            padding: 6px 0;
+            display: none;
+        }
+        .ctx-menu button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            border: none;
+            background: none;
+            padding: 7px 14px;
+            font-size: .8rem;
+            color: #334155;
+            cursor: pointer;
+        }
+        .ctx-menu button:hover { background: #eef2ff; color: #4f46e5; }
+        .ctx-menu .ctx-sep { height: 1px; background: #e2e8f0; margin: 4px 0; }
+        .export-modal-backdrop {
+            position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 2200; display: none;
+        }
+        .export-modal {
+            position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
+            z-index: 2201; width: min(460px, calc(100% - 24px));
+            background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.2);
+            display: none; flex-direction: column; overflow: hidden;
+        }
+        .export-modal.show, .export-modal-backdrop.show { display: flex; }
+        .export-modal-backdrop.show { display: block; }
+        .export-modal .em-hd {
+            padding: 14px 18px; border-bottom: 1px solid #e2e8f0;
+            display: flex; justify-content: space-between; align-items: center; font-weight: 700;
+        }
+        .export-modal .em-bd { padding: 16px 18px; font-size: .84rem; }
+        .export-modal .em-ft {
+            padding: 12px 18px; border-top: 1px solid #e2e8f0;
+            display: flex; justify-content: flex-end; gap: 8px; background: #f8fafc;
+        }
+        .export-modal label.em-label { display: block; font-size: .75rem; color: #64748b; margin: 10px 0 4px; }
+        .export-modal .em-kind { display: flex; gap: 12px; flex-wrap: wrap; }
+        .export-modal .em-tables { max-height: 120px; overflow: auto; background: #f8fafc; border-radius: 8px; padding: 8px 10px; font-size: .75rem; color: #475569; }
         .sidebar .sb-body { flex: 1; overflow-y: auto; padding: 8px 0; min-height: 0; }
         .sidebar .sb-body .tbl-item {
             padding: 7px 14px;
@@ -364,6 +426,7 @@
                 <a class="nav-link text-white" href="/sync/list">同步任务</a>
                 <a class="nav-link text-white" href="/report/list">比对报告</a>
                 <a class="nav-link text-white active" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/cleanup">C盘清理</a>
                 <a class="nav-link text-white" href="/settings">参数设置</a>
                 <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
             </div>
@@ -376,7 +439,13 @@
         <div class="viewer-layout">
             <!-- 左侧边栏 -->
             <div class="sidebar">
-                <div class="sb-header">&#128451; 数据源 &amp; 表列表</div>
+                <div class="sb-header">
+                    <span class="sb-title">
+                        <input type="checkbox" class="tbl-check" id="chkAllTables" title="全选当前列表" onclick="toggleSelectAllTables(this)">
+                        &#128451; 数据源 &amp; 表列表
+                    </span>
+                    <button type="button" class="page-btn" onclick="openExportModal('BOTH', 'tables')" title="导出勾选表">导出</button>
+                </div>
                 <div class="schema-selector" id="schemaSelector" style="display:none;">
                     <span class="schema-label">数据库 / 模式</span>
                     <select id="schemaSelect" onchange="onSchemaChange()">
@@ -388,9 +457,13 @@
                         <input type="text" id="tableSearch" placeholder="&#128269; 搜索表名..." oninput="filterTables()">
                     </div>
                     <div id="tableListWrap">
-                        <div style="padding: 16px; text-align: center; color: #94a3b8; font-size: .8rem;">
-                            <div class="spinner-ring mx-auto mb-2" style="width:20px;height:20px;border-width:2px;"></div>
-                            加载中...
+                        <div class="empty-state-viewer" style="padding:30px 10px;"
+                             th:if="${dataSources == null or #lists.isEmpty(dataSources)}">
+                            <p style="font-size:.78rem;margin-bottom:8px;">暂无数据源</p>
+                            <p style="font-size:.75rem;margin:0;"><a href="/datasource/list">去数据源管理添加</a></p>
+                        </div>
+                        <div class="empty-state-viewer" style="padding:30px 10px;" th:unless="${dataSources == null or #lists.isEmpty(dataSources)}">
+                            <p style="font-size:.78rem;margin:0;">请选择数据源</p>
                         </div>
                     </div>
                 </div>
@@ -407,12 +480,14 @@
                         <span class="tb-title">数据浏览</span>
                         <select class="form-select form-select-sm" id="dsSelect" onchange="onDsChange()" style="width:180px;font-size:.82rem;">
                             <option value="">选择数据源...</option>
-                            <option th:each="ds : ${dataSources}" th:value="${ds.id}" th:text="${ds.name}"></option>
+                            <option th:each="ds : ${dataSources}" th:value="${ds.id}" th:text="${ds.name}"
+                                    th:attr="data-db-type=${ds.dbType}"></option>
                         </select>
                         <span class="tb-table" id="currentTableLabel" style="display:none;"></span>
                         <span class="tb-rowcount" id="rowCountLabel" style="display:none;"></span>
                     </div>
                     <div class="tb-right">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="openExportModal('BOTH', 'tables')">导出 SQL</button>
                         <div class="mode-tabs">
                             <div class="mode-tab active" onclick="switchMode('browse', this)">浏览模式</div>
                             <div class="mode-tab" onclick="switchMode('sql', this)">SQL 模式</div>
@@ -469,6 +544,47 @@
         </div>
     </div>
 
+    </div>
+
+    <div class="ctx-menu" id="tableCtxMenu">
+        <button type="button" onclick="ctxExport('DDL')">导出 DDL</button>
+        <button type="button" onclick="ctxExport('DML')">导出 DML</button>
+        <button type="button" onclick="ctxExport('BOTH')">导出 DDL + DML</button>
+    </div>
+    <div class="ctx-menu" id="rowCtxMenu">
+        <button type="button" onclick="ctxExportRows()">导出选中行 DML</button>
+        <div class="ctx-sep"></div>
+        <button type="button" onclick="ctxExportCurrentTable('DML')">导出本表全部 DML</button>
+        <button type="button" onclick="ctxExportCurrentTable('DDL')">导出本表 DDL</button>
+        <button type="button" onclick="ctxExportCurrentTable('BOTH')">导出本表 DDL + DML</button>
+    </div>
+    <div class="export-modal-backdrop" id="exportBackdrop" onclick="closeExportModal()"></div>
+    <div class="export-modal" id="exportModal" role="dialog" aria-modal="true">
+        <div class="em-hd">
+            <span>导出 SQL</span>
+            <button type="button" class="page-btn" onclick="closeExportModal()">关闭</button>
+        </div>
+        <div class="em-bd">
+            <label class="em-label">导出内容</label>
+            <div class="em-kind">
+                <label><input type="radio" name="exportKind" value="DDL"> DDL</label>
+                <label><input type="radio" name="exportKind" value="DML"> DML</label>
+                <label><input type="radio" name="exportKind" value="BOTH" checked> DDL + DML</label>
+            </div>
+            <label class="em-label">目标数据库方言（默认：当前数据源）</label>
+            <select class="form-select form-select-sm" id="exportDialect"></select>
+            <label class="em-label" style="display:flex;align-items:center;gap:6px;margin-top:12px;">
+                <input type="checkbox" id="exportIncludeDrop"> 导出前包含 DROP TABLE
+            </label>
+            <label class="em-label">范围</label>
+            <div class="em-tables" id="exportScopeHint"></div>
+        </div>
+        <div class="em-ft">
+            <button type="button" class="btn btn-light btn-sm" onclick="closeExportModal()">取消</button>
+            <button type="button" class="btn btn-primary btn-sm" id="btnDoExport" onclick="doExport()">下载 .sql</button>
+        </div>
+    </div>
+
     <script th:inline="javascript">
         var currentDsId = null;
         var currentCatalog = null;  // MySQL: 数据库名
@@ -481,6 +597,12 @@
         var allTables = [];
         var allSchemas = [];
         var columnInfo = {}; // key: catalog|schema|tableName -> [{name,type,size,nullable,isPk}]
+        var currentDbType = '';
+        var lastDataColumns = [];
+        var lastDataRows = [];
+        var exportCtx = { mode: 'tables', kind: 'BOTH', tables: [], rows: null };
+        var dialectOptions = [];
+        var ctxTableName = null;
 
         function columnCacheKey() {
             return (currentCatalog || '') + '|' + (currentSchema || '') + '|' + (currentTable || '');
@@ -498,6 +620,11 @@
                     if (p >= 1 && p <= totalPages) { goPage(p); }
                 }
             });
+            $(document).on('click', hideCtxMenus);
+            loadDialects();
+            if (!$('#dsSelect').val()) {
+                resetViewer();
+            }
         });
 
         // ===== 数据源切换 =====
@@ -509,6 +636,7 @@
             }
             currentDsId = dsId;
             var dsName = $('#dsSelect option:selected').text();
+            currentDbType = $('#dsSelect option:selected').attr('data-db-type') || '';
             $('#sbDsName').text(dsName);
             currentCatalog = null;
             currentSchema = null;
@@ -524,6 +652,7 @@
             $.get('/viewer/schemas/' + dsId, function(res) {
                 if (res.success) {
                     allSchemas = res.schemas || [];
+                    if (res.dbType) currentDbType = res.dbType;
                     renderSchemaSelector(allSchemas, res.defaultSchema);
                     // 自动选择默认/第一个 schema
                     if (allSchemas.length > 0) {
@@ -620,12 +749,18 @@
             var html = '';
             tables.forEach(function(t) {
                 var icon = t.type === 'VIEW' ? '&#128065;' : '&#128451;';
-                html += '<div class="tbl-item" data-table="' + escHtml(t.name) + '" onclick="selectTable(\'' + escHtml(t.name) + '\', this)">' +
-                    '<span class="tbl-icon">' + icon + '</span>' +
-                    '<span>' + escHtml(t.name) + '</span>' +
-                    '</div>';
+                html += '<div class="tbl-item" data-table="' + escHtml(t.name) + '"'
+                    + ' data-catalog="' + escHtml(t.catalog || '') + '"'
+                    + ' data-schema="' + escHtml(t.schema || '') + '"'
+                    + ' oncontextmenu="onTableContextMenu(event, this)"'
+                    + ' onclick="selectTable(\'' + escJs(t.name) + '\', this)">'
+                    + '<input type="checkbox" class="tbl-check" onclick="onTableCheckClick(event, this)">'
+                    + '<span class="tbl-icon">' + icon + '</span>'
+                    + '<span>' + escHtml(t.name) + '</span>'
+                    + '</div>';
             });
             $('#tableListWrap').html(html);
+            syncSelectAllCheckbox();
         }
 
         function filterTables() {
@@ -634,6 +769,7 @@
                 var name = ($(this).data('table') || '').toLowerCase();
                 $(this).toggle(name.indexOf(kw) >= 0);
             });
+            syncSelectAllCheckbox();
         }
 
         // ===== 选择表 =====
@@ -696,19 +832,24 @@
             cols.forEach(function(c) { if (c.isPk) pkNames[c.name] = true; });
 
             var thead = '<thead><tr>';
+            thead += '<th style="width:28px;"><input type="checkbox" class="th-check" id="chkAllRows" onclick="toggleSelectAllRows(this)" title="全选本页"></th>';
             thead += '<th style="width:40px;">#</th>';
             columns.forEach(function(col) {
                 thead += '<th class="' + (pkNames[col] ? 'pk-col' : '') + '">' + escHtml(col) + '</th>';
             });
             thead += '</tr></thead>';
 
+            lastDataColumns = columns.slice();
+            lastDataRows = rows;
+
             var tbody = '<tbody>';
             if (rows.length === 0) {
-                tbody += '<tr><td colspan="' + (columns.length + 1) + '" style="text-align:center;padding:30px;color:#94a3b8;">暂无数据</td></tr>';
+                tbody += '<tr><td colspan="' + (columns.length + 2) + '" style="text-align:center;padding:30px;color:#94a3b8;">暂无数据</td></tr>';
             } else {
                 var startIdx = (currentPage - 1) * currentPageSize;
                 rows.forEach(function(row, i) {
-                    tbody += '<tr>';
+                    tbody += '<tr data-row-index="' + i + '" oncontextmenu="onRowContextMenu(event, ' + i + ')">';
+                    tbody += '<td><input type="checkbox" class="row-check" onclick="onRowCheckClick(event, this)"></td>';
                     tbody += '<td style="color:#94a3b8;font-size:.72rem;width:40px;">' + (startIdx + i + 1) + '</td>';
                     row.forEach(function(val) {
                         if (val === null || val === undefined) {
@@ -833,7 +974,14 @@
             allTables = [];
             allSchemas = [];
             $('#schemaSelector').hide();
-            $('#tableListWrap').html('<div class="empty-state-viewer" style="padding:30px 10px;"><p style="font-size:.78rem;">请选择数据源</p></div>');
+            var dsCount = $('#dsSelect option').filter(function () { return $(this).val(); }).length;
+            if (dsCount === 0) {
+                $('#tableListWrap').html('<div class="empty-state-viewer" style="padding:30px 10px;">'
+                    + '<p style="font-size:.78rem;margin-bottom:8px;">暂无数据源</p>'
+                    + '<p style="font-size:.75rem;margin:0;"><a href="/datasource/list">去数据源管理添加</a></p></div>');
+            } else {
+                $('#tableListWrap').html('<div class="empty-state-viewer" style="padding:30px 10px;"><p style="font-size:.78rem;">请选择数据源</p></div>');
+            }
             $('#sbDsName').text('-');
             $('#sbTableCount').text('0');
             $('#currentTableLabel').hide();
@@ -861,6 +1009,239 @@
         }
 
         function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+        function hideCtxMenus() {
+            $('#tableCtxMenu,#rowCtxMenu').hide();
+        }
+
+        function loadDialects() {
+            $.get('/viewer/dialects', function(res) {
+                if (res.success) dialectOptions = res.dialects || [];
+            });
+        }
+
+        function onTableCheckClick(e, el) {
+            e.stopPropagation();
+            $(el).closest('.tbl-item').toggleClass('checked', el.checked);
+            syncSelectAllCheckbox();
+        }
+
+        function toggleSelectAllTables(el) {
+            var visible = $('#tableListWrap .tbl-item:visible');
+            visible.find('.tbl-check').prop('checked', el.checked);
+            visible.toggleClass('checked', el.checked);
+        }
+
+        function syncSelectAllCheckbox() {
+            var vis = $('#tableListWrap .tbl-item:visible');
+            var n = vis.length;
+            var c = vis.find('.tbl-check:checked').length;
+            $('#chkAllTables').prop('checked', n > 0 && c === n);
+        }
+
+        function collectCheckedTables() {
+            var items = [];
+            $('#tableListWrap .tbl-item .tbl-check:checked').each(function() {
+                var row = $(this).closest('.tbl-item');
+                items.push(tableRefFromItem(row));
+            });
+            return items;
+        }
+
+        function tableRefFromItem(row) {
+            return {
+                name: String(row.data('table') || ''),
+                catalog: String(row.data('catalog') || currentCatalog || ''),
+                schema: String(row.data('schema') || currentSchema || '')
+            };
+        }
+
+        function tableRefFromCurrent() {
+            var active = $('#tableListWrap .tbl-item.active');
+            if (active.length) return tableRefFromItem(active);
+            return {
+                name: currentTable || '',
+                catalog: currentCatalog || '',
+                schema: currentSchema || ''
+            };
+        }
+
+        function onTableContextMenu(e, el) {
+            e.preventDefault();
+            e.stopPropagation();
+            hideCtxMenus();
+            ctxTableName = $(el).data('table');
+            var $el = $(el);
+            if (!$el.find('.tbl-check').prop('checked')) {
+                $('#tableListWrap .tbl-check').prop('checked', false);
+                $('#tableListWrap .tbl-item').removeClass('checked');
+                $el.find('.tbl-check').prop('checked', true);
+                $el.addClass('checked');
+                syncSelectAllCheckbox();
+            }
+            $('#tableCtxMenu').css({ left: e.clientX + 'px', top: e.clientY + 'px' }).show();
+        }
+
+        function onRowContextMenu(e, idx) {
+            e.preventDefault();
+            e.stopPropagation();
+            hideCtxMenus();
+            var tr = $('#dataBody tbody tr[data-row-index="' + idx + '"]');
+            if (tr.length && !tr.find('.row-check').prop('checked')) {
+                $('#dataBody .row-check').prop('checked', false);
+                $('#dataBody tbody tr').removeClass('row-selected');
+                tr.find('.row-check').prop('checked', true);
+                tr.addClass('row-selected');
+            }
+            $('#rowCtxMenu').css({ left: e.clientX + 'px', top: e.clientY + 'px' }).show();
+        }
+
+        function onRowCheckClick(e, el) {
+            e.stopPropagation();
+            $(el).closest('tr').toggleClass('row-selected', el.checked);
+            var vis = $('#dataBody tbody tr[data-row-index]');
+            var n = vis.length;
+            var c = vis.find('.row-check:checked').length;
+            $('#chkAllRows').prop('checked', n > 0 && c === n);
+        }
+
+        function toggleSelectAllRows(el) {
+            $('#dataBody tbody tr[data-row-index] .row-check').prop('checked', el.checked);
+            $('#dataBody tbody tr[data-row-index]').toggleClass('row-selected', el.checked);
+        }
+
+        function collectSelectedRowMaps() {
+            var maps = [];
+            $('#dataBody tbody tr[data-row-index] .row-check:checked').each(function() {
+                var idx = parseInt($(this).closest('tr').data('row-index'), 10);
+                var row = lastDataRows[idx];
+                if (!row) return;
+                var obj = {};
+                lastDataColumns.forEach(function(col, i) { obj[col] = row[i]; });
+                maps.push(obj);
+            });
+            return maps;
+        }
+
+        function ctxExport(kind) {
+            hideCtxMenus();
+            openExportModal(kind, 'tables');
+        }
+
+        function ctxExportCurrentTable(kind) {
+            hideCtxMenus();
+            if (!currentTable) { showToast('请先选择表', 'warning'); return; }
+            exportCtx.tables = [tableRefFromCurrent()];
+            exportCtx.rows = null;
+            exportCtx.mode = 'tables';
+            openExportModal(kind, 'preset');
+        }
+
+        function ctxExportRows() {
+            hideCtxMenus();
+            var rows = collectSelectedRowMaps();
+            if (!rows.length) { showToast('请先勾选要导出的行', 'warning'); return; }
+            if (!currentTable) { showToast('请先选择表', 'warning'); return; }
+            exportCtx.tables = [tableRefFromCurrent()];
+            exportCtx.rows = rows;
+            exportCtx.mode = 'rows';
+            openExportModal('DML', 'preset');
+        }
+
+        function fillDialectSelect() {
+            var html = '<option value="">当前数据源（' + escHtml(currentDbType || '自身') + '）</option>';
+            dialectOptions.forEach(function(d) {
+                html += '<option value="' + escHtml(d.id) + '">' + escHtml(d.label) + '</option>';
+            });
+            $('#exportDialect').html(html);
+            if (currentDbType) {
+                $('#exportDialect').val('');
+            }
+        }
+
+        function openExportModal(kind, mode) {
+            hideCtxMenus();
+            if (!currentDsId) { showToast('请先选择数据源', 'warning'); return; }
+            kind = kind || 'BOTH';
+            if (mode !== 'preset') {
+                exportCtx.mode = mode || 'tables';
+                exportCtx.rows = null;
+                if (exportCtx.mode === 'tables') {
+                    var checked = collectCheckedTables();
+                    if (!checked.length && currentTable) checked = [tableRefFromCurrent()];
+                    if (!checked.length) { showToast('请先勾选表，或打开一张表后再导出', 'warning'); return; }
+                    exportCtx.tables = checked;
+                }
+            }
+            exportCtx.kind = kind;
+            $('input[name="exportKind"][value="' + kind + '"]').prop('checked', true);
+            if (exportCtx.mode === 'rows') {
+                $('input[name="exportKind"][value="DML"]').prop('checked', true);
+                $('input[name="exportKind"]').prop('disabled', true);
+                $('#exportScopeHint').text('选中 ' + (exportCtx.rows || []).length + ' 行 → ' + (exportCtx.tables[0] && exportCtx.tables[0].name));
+            } else {
+                $('input[name="exportKind"]').prop('disabled', false);
+                var names = (exportCtx.tables || []).map(function(t) { return t.name; });
+                $('#exportScopeHint').text(names.length + ' 张表：' + names.join(', '));
+            }
+            fillDialectSelect();
+            $('#exportIncludeDrop').prop('checked', false);
+            $('#exportBackdrop,#exportModal').addClass('show');
+        }
+
+        function closeExportModal() {
+            $('#exportBackdrop,#exportModal').removeClass('show');
+        }
+
+        function doExport() {
+            if (!currentDsId) return;
+            var kind = $('input[name="exportKind"]:checked').val() || exportCtx.kind || 'BOTH';
+            var target = $('#exportDialect').val() || '';
+            var body = {
+                kind: kind,
+                targetDbType: target,
+                tables: exportCtx.tables,
+                includeDrop: $('#exportIncludeDrop').is(':checked')
+            };
+            if (exportCtx.mode === 'rows' && exportCtx.rows) {
+                body.kind = 'DML';
+                body.rows = exportCtx.rows;
+            }
+            $('#btnDoExport').prop('disabled', true).text('导出中...');
+            fetch('/viewer/export/' + currentDsId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(function(res) {
+                var ct = res.headers.get('content-type') || '';
+                if (!res.ok || ct.indexOf('application/json') >= 0) {
+                    return res.json().then(function(j) { throw new Error((j && j.msg) || '导出失败'); });
+                }
+                var disp = res.headers.get('content-disposition') || '';
+                var fileName = 'export.sql';
+                var m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(disp);
+                if (m) fileName = decodeURIComponent((m[1] || m[2] || fileName).replace(/"/g, ''));
+                return res.blob().then(function(blob) {
+                    return { blob: blob, fileName: fileName };
+                });
+            }).then(function(pack) {
+                var url = URL.createObjectURL(pack.blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = pack.fileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                closeExportModal();
+                showToast('已开始下载 ' + pack.fileName, 'success');
+            }).catch(function(err) {
+                showToast(err.message || '导出失败', 'warning');
+            }).then(function() {
+                $('#btnDoExport').prop('disabled', false).text('下载 .sql');
+            });
+        }
     </script>
     <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
     <script th:src="@{/js/app-version.js}"></script>

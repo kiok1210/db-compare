@@ -37,7 +37,7 @@
 #
 # - `CHANNEL`：8～16，过大易打满目标库
 # - writer `batchSize`：1024～4096
-# - **无 TRUNCATE 且分批 DELETE 太慢**：界面选 **DataX DELETE**（preSql 整表 DELETE）
+# - **无 TRUNCATE**：界面选 **DataX DELETE**（先 COUNT 目标算 preSql 批次数、COUNT 源算写入进度；DataX 全量拷源）
 # - **无 TRUNCATE 权限且 DELETE 太慢（覆盖写入）**：`CLEAR_MODE=NONE` + `WRITE_MODE=replace`
 # - 界面同步：参数设置 → DataX 清表策略 / 写入模式
 # - 目标侧临时关闭非必要 binlog / 调大 `innodb_buffer_pool`（DBA 评估）

@@ -39,7 +39,7 @@
         }
         .btn-icon-only:hover { background: var(--color-primary-bg); border-color: var(--color-primary-light); }
 
-        .action-group { display: flex; gap: 5px; align-items: center; }
+        .action-group { display: flex; gap: 5px; align-items: center; flex-wrap: nowrap; }
         .btn-icon-only.testing {
             pointer-events: none;
             opacity: .6;
@@ -55,6 +55,44 @@
             animation: spin .6s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* 长 JDBC URL 不得挤掉操作列 */
+        .ds-table {
+            table-layout: fixed;
+            width: 100%;
+            margin-bottom: 0;
+        }
+        .ds-table th, .ds-table td {
+            vertical-align: middle;
+        }
+        .ds-url-cell {
+            max-width: 0; /* 配合 table-layout:fixed，允许被压缩 */
+            overflow: hidden;
+        }
+        .ds-url {
+            display: block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: .78rem;
+            color: var(--color-text-secondary);
+            cursor: help;
+        }
+        .ds-col-actions {
+            width: 130px;
+            min-width: 130px;
+            white-space: nowrap;
+            position: sticky;
+            right: 0;
+            background: #fff;
+            box-shadow: -6px 0 8px -6px rgba(15, 23, 42, .18);
+            z-index: 1;
+        }
+        thead .ds-col-actions {
+            background: var(--bs-table-bg, #f8fafc);
+            z-index: 2;
+        }
     </style>
 </head>
 <body>
@@ -67,6 +105,7 @@
                 <a class="nav-link text-white" href="/sync/list">同步任务</a>
                 <a class="nav-link text-white" href="/report/list">比对报告</a>
                 <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white" href="/cleanup">C盘清理</a>
                 <a class="nav-link text-white" href="/settings">参数设置</a>
                 <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
                 
@@ -97,16 +136,16 @@
         <div class="card">
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table">
+                    <table class="table ds-table">
                         <thead>
                             <tr>
-                                <th style="width:50px;">ID</th>
-                                <th>名称</th>
-                                <th>数据库类型</th>
+                                <th style="width:56px;">ID</th>
+                                <th style="width:18%;">名称</th>
+                                <th style="width:110px;">数据库类型</th>
                                 <th>连接地址</th>
-                                <th>用户名</th>
-                                <th style="width:70px;">状态</th>
-                                <th style="width:200px;">操作</th>
+                                <th style="width:12%;">用户名</th>
+                                <th style="width:72px;">状态</th>
+                                <th class="ds-col-actions">操作</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -114,22 +153,22 @@
                                 <td class="text-muted" style="font-size:.8rem;">#<span th:text="${ds.id}"></span></td>
                                 <td>
                                     <span class="fw-bold" th:text="${ds.name}"></span>
-                                    <div th:if="${ds.description}" class="text-muted" style="font-size:.72rem;" th:text="${ds.description}"></div>
+                                    <div th:if="${ds.description}" class="text-muted text-truncate" style="font-size:.72rem;" th:text="${ds.description}"></div>
                                 </td>
                                 <td>
                                     <span class="db-type-badge"
                                           th:classappend="${ds.dbType != null ? 'dt-' + #strings.toLowerCase(ds.dbType.name()) : ''}"
                                           th:text="${ds.dbType}"></span>
                                 </td>
-                                <td>
-                                    <code style="font-size:.78rem;color:var(--color-text-secondary);" th:text="${ds.url}"></code>
+                                <td class="ds-url-cell">
+                                    <code class="ds-url" th:text="${ds.url}" th:title="${ds.url}"></code>
                                 </td>
-                                <td th:text="${ds.username}"></td>
+                                <td class="text-truncate" th:text="${ds.username}" th:title="${ds.username}"></td>
                                 <td>
                                     <span th:if="${ds.enabled}" class="status-pill sp-success">启用</span>
                                     <span th:unless="${ds.enabled}" class="status-pill sp-muted">禁用</span>
                                 </td>
-                                <td>
+                                <td class="ds-col-actions">
                                     <div class="action-group">
                                         <button class="btn-icon-only btn-test-conn" th:attr="data-id=${ds.id}"
                                                 th:onclick="|testConnection(${ds.id}, this)|"

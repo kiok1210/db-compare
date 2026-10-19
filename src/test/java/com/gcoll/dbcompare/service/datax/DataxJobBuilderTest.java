@@ -31,15 +31,36 @@ class DataxJobBuilderTest {
     }
 
     @Test
-    void buildMysqlFullCopyJob_deletePreSql_noTruncate() throws Exception {
+    void buildMysqlFullCopyJob_dataxDelete_preSqlByTargetCount() throws Exception {
+        Map<String, Object> job = DataxJobBuilder.buildMysqlFullCopyJob(
+                "jdbc:mysql://127.0.0.1:3306/a", "u", "p", "a.t",
+                "jdbc:mysql://127.0.0.1:3306/b", "u", "p", "b.t",
+                "id", 4, 1024, DataxClearMode.DATAX_DELETE, DataxWriteMode.INSERT,
+                120_000L, 50_000);
+        String json = new String(Files.readAllBytes(
+                DataxJobBuilder.writeJobFile(temp, "dxdel.json", job)), "UTF-8");
+        assertTrue(json.contains("preSql"), json);
+        assertTrue(json.contains("DELETE FROM `b`.`t` LIMIT 50000"), json);
+        int count = 0;
+        int from = 0;
+        String needle = "DELETE FROM `b`.`t` LIMIT 50000";
+        while ((from = json.indexOf(needle, from)) >= 0) {
+            count++;
+            from += needle.length();
+        }
+        assertEquals(8, count, json);
+        assertTrue(json.contains("mysqlreader"), json);
+    }
+
+    @Test
+    void buildMysqlFullCopyJob_deleteMode_noPreSql() throws Exception {
         Map<String, Object> job = DataxJobBuilder.buildMysqlFullCopyJob(
                 "jdbc:mysql://127.0.0.1:3306/a", "u", "p", "t",
                 "jdbc:mysql://127.0.0.1:3306/b", "u", "p", "t",
-                null, 4, 1024, DataxClearMode.DELETE);
+                null, 4, 1024, DataxClearMode.DELETE, DataxWriteMode.INSERT, 100_000L, 50_000);
         String json = new String(Files.readAllBytes(
                 DataxJobBuilder.writeJobFile(temp, "t.json", job)), "UTF-8");
-        assertTrue(json.contains("DELETE FROM `t`"));
-        assertTrue(!json.contains("TRUNCATE"));
+        assertFalse(json.contains("preSql"), json);
     }
 
     @Test
@@ -52,18 +73,6 @@ class DataxJobBuilderTest {
                 DataxJobBuilder.writeJobFile(temp, "n.json", job)), "UTF-8");
         assertTrue(!json.contains("preSql"));
         assertTrue(json.contains("\"writeMode\" : \"insert\"") || json.contains("\"writeMode\":\"insert\""));
-    }
-
-    @Test
-    void buildMysqlFullCopyJob_dataxDeletePreSql() throws Exception {
-        Map<String, Object> job = DataxJobBuilder.buildMysqlFullCopyJob(
-                "jdbc:mysql://127.0.0.1:3306/a", "u", "p", "a.t",
-                "jdbc:mysql://127.0.0.1:3306/b", "u", "p", "b.t",
-                "id", 4, 1024, DataxClearMode.DATAX_DELETE, DataxWriteMode.INSERT);
-        String json = new String(Files.readAllBytes(
-                DataxJobBuilder.writeJobFile(temp, "dxdel.json", job)), "UTF-8");
-        assertTrue(json.contains("DELETE FROM") && json.contains("preSql"), json);
-        assertTrue(json.contains("`b`.`t`") || json.contains("b.t"), json);
     }
 
     @Test

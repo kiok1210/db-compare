@@ -27,7 +27,7 @@ public final class DataxJobBuilder {
      * @param splitPk 可为 null；非空时写入 reader.splitPk 以并行切片
      * @param channel DataX 通道数
      * @param batchSize writer batchSize
-     * @param clearMode {@link DataxClearMode}；仅 TRUNCATE/DELETE 写入 writer.preSql，AUTO/NONE 不写
+     * @param clearMode {@link DataxClearMode}；DATAX_DELETE/TRUNCATE 写入 writer.preSql
      */
     public static Map<String, Object> buildMysqlFullCopyJob(
             String srcJdbcUrl, String srcUser, String srcPassword, String srcTable,
@@ -35,7 +35,8 @@ public final class DataxJobBuilder {
             String splitPk, int channel, int batchSize, String clearMode) {
         return buildMysqlFullCopyJob(srcJdbcUrl, srcUser, srcPassword, srcTable,
                 tgtJdbcUrl, tgtUser, tgtPassword, tgtTable,
-                splitPk, channel, batchSize, clearMode, DataxWriteMode.INSERT);
+                splitPk, channel, batchSize, clearMode, DataxWriteMode.INSERT, -1L,
+                DataxClearMode.DEFAULT_DELETE_LIMIT);
     }
 
     /**
@@ -45,6 +46,21 @@ public final class DataxJobBuilder {
             String srcJdbcUrl, String srcUser, String srcPassword, String srcTable,
             String tgtJdbcUrl, String tgtUser, String tgtPassword, String tgtTable,
             String splitPk, int channel, int batchSize, String clearMode, String writeMode) {
+        return buildMysqlFullCopyJob(srcJdbcUrl, srcUser, srcPassword, srcTable,
+                tgtJdbcUrl, tgtUser, tgtPassword, tgtTable,
+                splitPk, channel, batchSize, clearMode, writeMode, -1L,
+                DataxClearMode.DEFAULT_DELETE_LIMIT);
+    }
+
+    /**
+     * @param estimatedRows DATAX_DELETE：目标表 COUNT（仅用于 preSql 批次数）；写入仍全量读源
+     * @param deleteLimit   DATAX_DELETE 每批 LIMIT
+     */
+    public static Map<String, Object> buildMysqlFullCopyJob(
+            String srcJdbcUrl, String srcUser, String srcPassword, String srcTable,
+            String tgtJdbcUrl, String tgtUser, String tgtPassword, String tgtTable,
+            String splitPk, int channel, int batchSize, String clearMode, String writeMode,
+            long estimatedRows, int deleteLimit) {
 
         Map<String, Object> speed = new LinkedHashMap<>();
         speed.put("channel", Math.max(1, channel));
@@ -85,9 +101,10 @@ public final class DataxJobBuilder {
         writerParam.put("password", tgtPassword);
         writerParam.put("column", Collections.singletonList("*"));
         writerParam.put("batchSize", Math.max(100, batchSize));
-        String preSql = DataxClearMode.buildPreSql(tgtTable, clearMode);
-        if (preSql != null) {
-            writerParam.put("preSql", Collections.singletonList(preSql));
+        java.util.List<String> preSqls = DataxClearMode.buildPreSqlList(
+                tgtTable, clearMode, estimatedRows, deleteLimit);
+        if (preSqls != null && !preSqls.isEmpty()) {
+            writerParam.put("preSql", preSqls);
         }
         writerParam.put("connection", Collections.singletonList(writerConn));
 

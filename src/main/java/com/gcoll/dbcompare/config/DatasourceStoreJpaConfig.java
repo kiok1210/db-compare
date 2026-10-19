@@ -54,6 +54,15 @@ public class DatasourceStoreJpaConfig {
                 .password(settings.getPassword() != null ? settings.getPassword() : "")
                 .driverClassName(settings.getDriverClassName())
                 .build();
+        if (ds instanceof HikariDataSource) {
+            HikariDataSource hikari = (HikariDataSource) ds;
+            hikari.setMaximumPoolSize(3);
+            hikari.setMinimumIdle(1);
+            hikari.setIdleTimeout(60_000L);
+            hikari.setMaxLifetime(600_000L);
+            hikari.setConnectionTimeout(15_000L);
+            hikari.setPoolName("datasource-store");
+        }
         DatasourceStoreSchemaRepair.repair(ds);
         return ds;
     }

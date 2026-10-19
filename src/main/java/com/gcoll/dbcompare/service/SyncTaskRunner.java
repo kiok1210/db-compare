@@ -28,6 +28,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -95,6 +96,11 @@ public class SyncTaskRunner {
      * 会争抢同一批行锁 → 1205。单连接串行分批无此问题。
      */
     private final ConcurrentHashMap<String, ReentrantLock> targetClearLocks = new ConcurrentHashMap<>();
+    /** 表级 0–100 进度（并行时汇总驱动圆环；DataX 清表/写入阶段细粒度更新） */
+    private final ConcurrentHashMap<Long, ConcurrentHashMap<String, AtomicInteger>> liveTableProgressPct =
+            new ConcurrentHashMap<>();
+    /** DataX 清表阶段按约 4.5 万行/秒估算进度（preSql 无原生百分比） */
+    private static final long ASSUMED_DATAX_DELETE_ROWS_PER_SEC = 45_000L;
 
     public SyncTaskRunner(SyncTaskRepository syncTaskRepository, DataSourceService dataSourceService,
                           ReportService reportService, AppSettingsService appSettingsService,
@@ -267,6 +273,8 @@ public class SyncTaskRunner {
             List<String> futureTableKeys = new ArrayList<>(tableTotal);
             List<String> futureDisplayNames = new ArrayList<>(tableTotal);
             List<String> futureTableTags = new ArrayList<>(tableTotal);
+            ConcurrentHashMap<String, AtomicInteger> tablePctMap = new ConcurrentHashMap<>();
+            liveTableProgressPct.put(taskId, tablePctMap);
             for (int ti = 0; ti < tableTotal; ti++) {
                 String tableName = tables.get(ti);
                 SchemaMappingHelper.CatalogPair catalogs = SchemaMappingHelper.resolveCatalogs(
@@ -284,6 +292,7 @@ public class SyncTaskRunner {
                 futureTableKeys.add(sourceTableKey);
                 futureDisplayNames.add(formatCatalogTable(fSrcCat, fPureTableName));
                 futureTableTags.add(tableTag);
+                tablePctMap.put(tableTag, new AtomicInteger(0));
 
                 futures.add(executor.submit(() -> {
                     TableSyncResult result = new TableSyncResult();
@@ -366,7 +375,8 @@ public class SyncTaskRunner {
                                 result.phase = "datax";
                                 checkCancel(taskId, "datax", false);
                                 AppSettings dataxSettings = appSettingsService.getSettings();
-                                String clearMode = DataxClearMode.normalize(dataxSettings.getDataxClearMode());
+                                String clearMode = DataxClearMode.resolve(
+                                        task.getDataxClearMode(), dataxSettings.getDataxClearMode());
                                 String writeMode = DataxWriteMode.normalize(dataxSettings.getDataxWriteMode());
                                 updateTaskDetail(task, lastSaveTime, tableTag + " · DataX 同步");
                                 log.info("{} DataX 工具同步: table={}, pk={}, clearMode={}, writeMode={}, hybrid={}",
@@ -381,7 +391,17 @@ public class SyncTaskRunner {
                                     result.clearAttempted = true;
                                     checkCancel(taskId, "clear", true);
                                     conns.borrowTarget(true);
-                                    if (DataxClearMode.DELETE.equals(clearMode)) {
+                                    if (DataxClearMode.PARALLEL_DELETE.equals(clearMode)) {
+                                        int clearPar = SyncTask.clampClearParallel(task.getClearParallelThreads());
+                                        if (targetDbType == DatabaseType.GOLDENDB) {
+                                            clearPar = Math.min(clearPar, SyncIdleWatchdog.GOLDENDB_MAX_PARALLEL);
+                                        }
+                                        uiLog(taskId, "info", tableTag
+                                                + " DataX 前清表: 应用侧并行分段 DELETE（并行=" + clearPar + "）");
+                                        clearTableParallelByPk(conns, fTgtCat, fPureTableName, tableTag,
+                                                targetDbType, syncBatchSize, primaryKeys, clearPar,
+                                                task, lastSaveTime);
+                                    } else if (DataxClearMode.DELETE.equals(clearMode)) {
                                         uiLog(taskId, "info", tableTag + " DataX 前清表: 应用侧分批 DELETE");
                                         clearTable(conns, fTgtCat, fPureTableName, tableTag, targetDbType,
                                                 syncBatchSize, task, lastSaveTime);
@@ -390,7 +410,7 @@ public class SyncTaskRunner {
                                         if (!truncateTable(conns.tgt, fTgtCat, fPureTableName, tableTag,
                                                 targetDbType, task, lastSaveTime)) {
                                             throw new SQLException("TRUNCATE 失败且清表策略为仅 TRUNCATE；"
-                                                    + "请改参数「DataX 清表策略」为 AUTO、分批 DELETE 或 DataX DELETE");
+                                                    + "请改任务清表策略为 AUTO、分批 DELETE 或并行分段 DELETE");
                                         }
                                     } else {
                                         // AUTO：TRUNCATE → 失败则 DELETE
@@ -409,31 +429,141 @@ public class SyncTaskRunner {
                                     result.clearAttempted = true;
                                     uiLog(taskId, "info", tableTag + " 清表交由 DataX writer.preSql（"
                                             + DataxClearMode.displayName(clearMode)
-                                            + "），跳过应用侧分批 DELETE");
+                                            + "），跳过应用侧慢 DELETE");
+                                }
+
+                                // 进度基准：清表用目标 COUNT，写入用源 COUNT（互不混用）
+                                long targetClearRows = estimatedRows;
+                                long sourceRowCount = estimatedRows;
+                                result.phase = "count";
+                                checkCancel(taskId, "count", result.clearAttempted);
+                                maybeMarkLargeTable(tableTag, Math.max(estimatedRows,
+                                        SyncIdleWatchdog.LARGE_TABLE_ROW_THRESHOLD), task);
+                                updateTaskDetail(task, lastSaveTime, tableTag + " · COUNT 源/目标");
+                                int deleteLimitForPlan = Math.max(DataxClearMode.DEFAULT_DELETE_LIMIT,
+                                        appSettingsService.getSettings().getSyncDeleteBatchSize());
+
+                                conns.borrowSource();
+                                try {
+                                    sourceRowCount = countTableRowsWithHeartbeat(
+                                            conns.src, srcQualified, tableTag, taskId, "源表");
+                                } finally {
+                                    conns.releaseSource();
+                                }
+                                conns.borrowTarget(false);
+                                try {
+                                    targetClearRows = countTableRowsWithHeartbeat(
+                                            conns.tgt, tgtQualified, tableTag, taskId, "目标表");
+                                } finally {
+                                    conns.releaseTarget();
+                                }
+
+                                if (DataxClearMode.DATAX_DELETE.equals(clearMode)) {
+                                    int batches = DataxClearMode.calcBatchCount(targetClearRows, deleteLimitForPlan);
+                                    uiLog(taskId, "info", tableTag
+                                            + " 进度基准：清表用目标 COUNT=" + targetClearRows
+                                            + "（→ DataX preSql DELETE…LIMIT " + deleteLimitForPlan
+                                            + " × " + batches + " 批）；写入用源 COUNT=" + sourceRowCount
+                                            + "（全量拷源，不按目标行数截断）");
+                                } else {
+                                    uiLog(taskId, "info", tableTag
+                                            + " COUNT 完成：源=" + sourceRowCount
+                                            + "，目标=" + targetClearRows
+                                            + "（写入进度按源 COUNT）");
                                 }
 
                                 result.phase = "datax";
                                 checkCancel(taskId, "datax", result.clearAttempted);
-                                // DataX 进程可能数十分钟无「本工具」JDBC 进度；按估算行数放宽看门狗，并在 wait 轮询中打心跳
-                                maybeMarkLargeTable(tableTag, Math.max(estimatedRows, SyncIdleWatchdog.LARGE_TABLE_ROW_THRESHOLD),
+                                maybeMarkLargeTable(tableTag, Math.max(Math.max(sourceRowCount, targetClearRows),
+                                                SyncIdleWatchdog.LARGE_TABLE_ROW_THRESHOLD),
                                         task);
                                 updateTaskDetail(task, lastSaveTime, tableTag + " · DataX 写入");
                                 final SyncIdleWatchdog dataxWd = TL_WATCHDOG.get();
                                 final String dataxTag = tableTag;
                                 final DataxLogMonitor.Snapshot dataxSnap = new DataxLogMonitor.Snapshot();
+                                dataxSnap.sourceTotalRows = sourceRowCount;
+                                dataxSnap.clearTargetRows = targetClearRows;
+                                if (DataxClearMode.DATAX_DELETE.equals(clearMode)) {
+                                    dataxSnap.clearBatches = DataxClearMode.calcBatchCount(targetClearRows,
+                                            Math.max(DataxClearMode.DEFAULT_DELETE_LIMIT,
+                                                    appSettingsService.getSettings().getSyncDeleteBatchSize()));
+                                }
                                 final AtomicLong lastProgressLogMs = new AtomicLong(0);
+                                final AtomicLong lastDataxHeartbeatLogMs = new AtomicLong(0);
+                                final AtomicLong lastClearProbeMs = new AtomicLong(0);
+                                final long srcCountForHb = sourceRowCount;
+                                final long tgtCountForHb = targetClearRows;
+                                final long dataxPhaseStartMs = System.currentTimeMillis();
+                                final boolean dataxDeleteClear = DataxClearMode.DATAX_DELETE.equals(clearMode);
                                 try {
                                     rowCount = dataxSyncService.syncTable(
                                             task, sourceConfig, targetConfig,
                                             fSrcCat, fTgtCat, fPureTableName, primaryKeys,
+                                            targetClearRows,
+                                            sourceRowCount,
                                             () -> cancelledTaskIds.contains(taskId)
                                                     || (dataxWd != null && (dataxWd.isTaskTimedOut()
                                                     || dataxWd.isTableTimedOut(dataxTag))),
                                             line -> onDataxLogLine(taskId, task, lastSaveTime, dataxWd, dataxTag,
-                                                    dataxSnap, lastProgressLogMs, line),
+                                                    dataxSnap, lastProgressLogMs, line,
+                                                    tableTotal, dataxPhaseStartMs, dataxDeleteClear),
                                             () -> {
                                                 if (dataxWd != null) {
                                                     dataxWd.touch(dataxTag);
+                                                }
+                                                // preSql 清表：每 15s 探一次目标剩余行，避免时间估算卡死在 95%
+                                                long now = System.currentTimeMillis();
+                                                if (dataxDeleteClear && !dataxSnap.sawProgress
+                                                        && tgtCountForHb > 0
+                                                        && now - lastClearProbeMs.get() >= 15_000L) {
+                                                    lastClearProbeMs.set(now);
+                                                    try {
+                                                        conns.borrowTarget(false);
+                                                        long rem = estimateTableRows(conns.tgt, fTgtCat,
+                                                                fPureTableName, targetDbType);
+                                                        if (rem >= 0) {
+                                                            // 单调不增，避免估算抖动回退进度
+                                                            if (dataxSnap.clearRemainingRows < 0
+                                                                    || rem < dataxSnap.clearRemainingRows) {
+                                                                if (dataxSnap.clearRemainingRows >= 0
+                                                                        && dataxSnap.clearRatePrevAtMs > 0) {
+                                                                    long dt = now - dataxSnap.clearRatePrevAtMs;
+                                                                    long dropped = dataxSnap.clearRemainingRows - rem;
+                                                                    if (dt >= 1_000L && dropped > 0) {
+                                                                        dataxSnap.clearRecentRowsPerSec =
+                                                                                dropped * 1000L / dt;
+                                                                    }
+                                                                }
+                                                                dataxSnap.clearRatePrevRem = rem;
+                                                                dataxSnap.clearRatePrevAtMs = now;
+                                                                dataxSnap.clearRemainingRows = rem;
+                                                            }
+                                                        }
+                                                    } catch (Exception probeEx) {
+                                                        log.debug("{} 清表剩余行探测失败(可忽略): {}",
+                                                                dataxTag, probeEx.getMessage());
+                                                    } finally {
+                                                        try {
+                                                            conns.releaseTarget();
+                                                        } catch (Exception ignored) {
+                                                        }
+                                                    }
+                                                }
+                                                int within = calcDataxWithinTablePct(
+                                                        dataxSnap, dataxPhaseStartMs, dataxDeleteClear);
+                                                // 进入写入后允许从清表高百分比回落到写入起点(50%)
+                                                boolean allowDec = dataxSnap.sawProgress && within <= 55;
+                                                publishLiveTableProgress(task, dataxTag, within, tableTotal,
+                                                        lastSaveTime, allowDec);
+                                                if (now - lastDataxHeartbeatLogMs.get() >= 10_000L) {
+                                                    lastDataxHeartbeatLogMs.set(now);
+                                                    String hint = formatDataxProgressHint(
+                                                            dataxSnap, within, dataxDeleteClear,
+                                                            tgtCountForHb, srcCountForHb, dataxPhaseStartMs);
+                                                    uiLog(taskId, "info", dataxTag
+                                                            + " 【心跳】仍在运行 · DataX " + hint);
+                                                    updateTaskDetail(task, lastSaveTime,
+                                                            dataxTag + " · DataX " + hint);
                                                 }
                                             });
                                     if (rowCount < 0 && dataxSnap.bestRowCount() >= 0) {
@@ -548,9 +678,11 @@ public class SyncTaskRunner {
                             || (result.status == null && result.error == null);
                     int okN = ok ? liveSuccess.incrementAndGet() : liveSuccess.get();
                     int failN = ok ? liveFailed.get() : liveFailed.incrementAndGet();
+                    publishLiveTableProgress(task, tableTag, 100, tableTotal, lastSaveTime);
                     synchronized (task) {
                         task.setProcessedTables(done);
-                        task.setProgress(done * 100 / Math.max(tableTotal, 1));
+                        // 圆环：各表进度均值（完成表=100）；勿仅用完成张数导致长时间 0%
+                        task.setProgress(calcOverallLiveProgress(taskId, tableTotal, done));
                         task.setSuccessTables(okN);
                         task.setFailedTablesCount(failN);
                         if (runningTables.isEmpty()) {
@@ -783,9 +915,11 @@ public class SyncTaskRunner {
                             + " 成功=" + successCount + " 待重同步=" + retryables.size()
                             + " 总表=" + tables.size() + " 耗时=" + elapsedSec + "s");
 
+            liveTableProgressPct.remove(taskId);
             TL_WATCHDOG.remove();
 
         } catch (Exception e) {
+            liveTableProgressPct.remove(taskId);
             log.error("============================================================");
             log.error("【同步任务异常结束】 ★★★ taskId={} ★★★", taskId, e);
             log.error("============================================================");
@@ -1076,6 +1210,11 @@ public class SyncTaskRunner {
         void borrowTarget(boolean hints) throws SQLException {
             releaseTarget();
             tgt = borrowWithHeartbeat("目标", () -> pools.borrowTarget(targetSchema, multiTarget, hints));
+        }
+
+        /** 并行清表 worker：额外借一条目标连接（调用方负责 release） */
+        Connection borrowExtraTarget(boolean hints) throws SQLException {
+            return borrowWithHeartbeat("目标清表", () -> pools.borrowTarget(targetSchema, multiTarget, hints));
         }
 
         void borrowTargetRead() throws SQLException {
@@ -3120,7 +3259,228 @@ public class SyncTaskRunner {
             doClearTable(conns, catalog, tableName, tableTag, dbType, insertBatchSize, task, lastSaveTime);
         } finally {
             clearLock.unlock();
+            // 无人排队时移除锁对象，避免 targetClearLocks 无限增长
+            if (!clearLock.hasQueuedThreads() && !clearLock.isLocked()) {
+                targetClearLocks.remove(lockKey, clearLock);
+            }
         }
+    }
+
+    /**
+     * 按单列数值主键区间并行分批 DELETE；无可用 PK 时回退 {@link #clearTable}。
+     */
+    private void clearTableParallelByPk(WorkConns conns, String catalog, String tableName, String tableTag,
+                                        DatabaseType dbType, int insertBatchSize, List<String> primaryKeys,
+                                        int parallel, SyncTask task, AtomicInteger lastSaveTime)
+            throws SQLException, SyncAbortException {
+        String lockKey = targetClearLockKey(catalog, tableName);
+        ReentrantLock clearLock = targetClearLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
+        if (!clearLock.tryLock()) {
+            log.warn("{} 等待同目标表清表锁释放: {}.{}", tableTag, catalog, tableName);
+            if (task != null && task.getId() != null) {
+                uiLog(task.getId(), "warn", tableTag + " 等待同目标表清表完成（并行分段 DELETE）");
+            }
+            clearLock.lock();
+        }
+        try {
+            doClearTableParallelByPk(conns, catalog, tableName, tableTag, dbType, insertBatchSize,
+                    primaryKeys, parallel, task, lastSaveTime);
+        } finally {
+            clearLock.unlock();
+            if (!clearLock.hasQueuedThreads() && !clearLock.isLocked()) {
+                targetClearLocks.remove(lockKey, clearLock);
+            }
+        }
+    }
+
+    private void doClearTableParallelByPk(WorkConns conns, String catalog, String tableName, String tableTag,
+                                          DatabaseType dbType, int insertBatchSize, List<String> primaryKeys,
+                                          int parallel, SyncTask task, AtomicInteger lastSaveTime)
+            throws SQLException, SyncAbortException {
+        if (!supportsMysqlFamily(dbType)
+                || primaryKeys == null || primaryKeys.size() != 1
+                || parallel <= 1) {
+            log.warn("{} 并行分段 DELETE 条件不满足（需 MySQL 系单列主键且并行>1），回退单线程 DELETE",
+                    tableTag);
+            if (task != null && task.getId() != null) {
+                uiLog(task.getId(), "warn", tableTag + " 并行分段条件不足，回退单线程分批 DELETE");
+            }
+            doClearTable(conns, catalog, tableName, tableTag, dbType, insertBatchSize, task, lastSaveTime);
+            return;
+        }
+        String qualifiedName = buildQualifiedName(catalog, tableName, dbType);
+        String pk = primaryKeys.get(0);
+        String pkQuoted = "`" + pk.replace("`", "") + "`";
+        long[] minMax = queryPkMinMax(conns.tgt, qualifiedName, pkQuoted, tableTag);
+        if (minMax == null) {
+            log.warn("{} 无法读取主键 {} MIN/MAX（空表或非数值），回退单线程 DELETE", tableTag, pk);
+            if (task != null && task.getId() != null) {
+                uiLog(task.getId(), "warn", tableTag + " 主键 MIN/MAX 不可用，回退单线程分批 DELETE");
+            }
+            doClearTable(conns, catalog, tableName, tableTag, dbType, insertBatchSize, task, lastSaveTime);
+            return;
+        }
+        List<long[]> ranges = DataxClearMode.splitPkRanges(minMax[0], minMax[1], parallel);
+        if (ranges.isEmpty()) {
+            doClearTable(conns, catalog, tableName, tableTag, dbType, insertBatchSize, task, lastSaveTime);
+            return;
+        }
+        int deleteBatch = Math.max(FALLBACK_DELETE_BATCH_SIZE, resolveDeleteBatchSize(insertBatchSize));
+        // 主连接归还，避免占着池槽；各 worker 各自借
+        conns.releaseTarget();
+        checkCancel(task.getId(), "clear", true);
+        long deleteStart = System.currentTimeMillis();
+        AtomicLong totalDeleted = new AtomicLong(0);
+        AtomicLong lastHbAt = new AtomicLong(deleteStart);
+        if (task != null && task.getId() != null) {
+            uiLog(task.getId(), "info", tableTag + " 并行分段清表: pk=" + pk
+                    + " 区间=[" + minMax[0] + "," + minMax[1] + "] 段数=" + ranges.size()
+                    + " 每批 LIMIT " + deleteBatch);
+        }
+        updateTaskDetail(task, lastSaveTime, tableTag + " · 并行清表 x" + ranges.size());
+
+        ExecutorService pool = Executors.newFixedThreadPool(ranges.size());
+        List<Future<?>> futures = new ArrayList<>(ranges.size());
+        AtomicReference<Exception> firstError = new AtomicReference<>();
+        for (int i = 0; i < ranges.size(); i++) {
+            final int seg = i;
+            final long lo = ranges.get(i)[0];
+            final long hi = ranges.get(i)[1];
+            futures.add(pool.submit(() -> {
+                try {
+                    long deleted = deletePkRangeLoop(conns, qualifiedName, pkQuoted, lo, hi, deleteBatch,
+                            tableTag, task, totalDeleted, lastHbAt, lastSaveTime, ranges.size());
+                    log.info("{} 分段#{} 完成 [{}, {}) 删 {} 行", tableTag, seg, lo, hi, deleted);
+                } catch (Exception e) {
+                    firstError.compareAndSet(null, e);
+                }
+            }));
+        }
+        pool.shutdown();
+        try {
+            for (Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (ExecutionException ee) {
+                    firstError.compareAndSet(null,
+                            ee.getCause() instanceof Exception ? (Exception) ee.getCause() : ee);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    firstError.compareAndSet(null, ie);
+                }
+            }
+            if (!pool.awaitTermination(2, TimeUnit.HOURS)) {
+                pool.shutdownNow();
+                throw new SQLException("并行清表超时");
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            pool.shutdownNow();
+            throw new SyncAbortException(OUT_CLEAR_FAILED, "clear", true, "清表已取消");
+        }
+        Exception err = firstError.get();
+        if (err != null) {
+            if (err instanceof SyncAbortException) {
+                throw (SyncAbortException) err;
+            }
+            if (err instanceof SQLException) {
+                throw (SQLException) err;
+            }
+            throw new SQLException("并行清表失败: " + err.getMessage(), err);
+        }
+        conns.borrowTarget(true);
+        long elapsed = Math.max(1L, (System.currentTimeMillis() - deleteStart) / 1000L);
+        log.info("{} 并行清表完成, 共删 {} 行, 段数 {}, 耗时 {}s",
+                tableTag, totalDeleted.get(), ranges.size(), elapsed);
+        if (task != null && task.getId() != null) {
+            uiLog(task.getId(), "info", tableTag + " 并行清表完成, 共删 " + totalDeleted.get()
+                    + " 行, 段数 " + ranges.size() + ", 耗时 " + elapsed + "s");
+        }
+    }
+
+    /** @return [min,max] 或 null（空表/非数值） */
+    private long[] queryPkMinMax(Connection conn, String qualified, String pkQuoted, String tableTag)
+            throws SQLException {
+        String sql = "SELECT MIN(" + pkQuoted + "), MAX(" + pkQuoted + ") FROM " + qualified;
+        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            if (!rs.next()) {
+                return null;
+            }
+            Object a = rs.getObject(1);
+            Object b = rs.getObject(2);
+            if (a == null || b == null) {
+                return null;
+            }
+            try {
+                long min = ((Number) a).longValue();
+                long max = ((Number) b).longValue();
+                return new long[]{min, max};
+            } catch (ClassCastException ex) {
+                log.warn("{} 主键非数值类型: {}", tableTag, a.getClass().getSimpleName());
+                return null;
+            }
+        }
+    }
+
+    private long deletePkRangeLoop(WorkConns conns, String qualified, String pkQuoted,
+                                   long lo, long hiExclusive, int deleteBatch, String tableTag,
+                                   SyncTask task, AtomicLong totalDeleted, AtomicLong lastHbAt,
+                                   AtomicInteger lastSaveTime, int segments)
+            throws SQLException, SyncAbortException {
+        String sql = "DELETE FROM " + qualified + " WHERE " + pkQuoted + " >= ? AND "
+                + pkQuoted + " < ? LIMIT " + deleteBatch;
+        Connection conn = null;
+        long localDeleted = 0;
+        try {
+            conn = conns.borrowExtraTarget(true);
+            applyClearSessionHints(conn, tableTag);
+            conn.setAutoCommit(true);
+            int lockWaitRetries = 0;
+            final int maxLockWaitRetries = 8;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                while (true) {
+                    checkCancel(task.getId(), "clear", true);
+                    touchWatchdog();
+                    ps.setLong(1, lo);
+                    ps.setLong(2, hiExclusive);
+                    int affected;
+                    try {
+                        affected = ps.executeUpdate();
+                        lockWaitRetries = 0;
+                    } catch (SQLException e) {
+                        if (isLockWaitTimeout(e) && lockWaitRetries < maxLockWaitRetries) {
+                            lockWaitRetries++;
+                            try {
+                                Thread.sleep(Math.min(30_000L, 1000L * lockWaitRetries * lockWaitRetries));
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                throw new SyncAbortException(OUT_CLEAR_FAILED, "clear", true, "清表已取消");
+                            }
+                            continue;
+                        }
+                        throw e;
+                    }
+                    if (affected <= 0) {
+                        break;
+                    }
+                    localDeleted += affected;
+                    long all = totalDeleted.addAndGet(affected);
+                    long now = System.currentTimeMillis();
+                    long prevHb = lastHbAt.get();
+                    if (now - prevHb >= 5_000L && lastHbAt.compareAndSet(prevHb, now)) {
+                        if (task != null && task.getId() != null) {
+                            uiLog(task.getId(), "info", tableTag + " 【心跳】并行清表已删 " + all
+                                    + " 行（x" + segments + "）");
+                            updateTaskDetail(task, lastSaveTime,
+                                    tableTag + " · 并行清表已删 " + all + " 行");
+                        }
+                    }
+                }
+            }
+        } finally {
+            SyncJdbcPools.release(conn);
+        }
+        return localDeleted;
     }
 
     /** 目标表清表互斥键：catalog + table（忽略源库差异） */
@@ -3594,6 +3954,65 @@ public class SyncTaskRunner {
         return -1L;
     }
 
+    private long countTableRows(Connection conn, String qualifiedName, String tableTag, String role)
+            throws SQLException {
+        if (conn == null || qualifiedName == null || qualifiedName.isEmpty()) {
+            throw new SQLException("COUNT 失败：连接或表名为空");
+        }
+        String sql = "SELECT COUNT(*) FROM " + qualifiedName;
+        long t0 = System.currentTimeMillis();
+        log.info("{} 执行 [{} COUNT] {}", tableTag, role, sql);
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (!rs.next()) {
+                throw new SQLException("COUNT 无结果: " + qualifiedName);
+            }
+            long n = rs.getLong(1);
+            log.info("{} {} COUNT(*)={}，耗时 {}ms", tableTag, role, n,
+                    System.currentTimeMillis() - t0);
+            return n;
+        }
+    }
+
+    /** COUNT 期间后台心跳，避免大表 COUNT 被看门狗误杀 */
+    private long countTableRowsWithHeartbeat(Connection conn, String qualifiedName,
+                                             String tableTag, Long taskId, String role)
+            throws SQLException {
+        java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
+        Thread hb = new Thread(() -> {
+            long t0 = System.currentTimeMillis();
+            while (!done.get()) {
+                try {
+                    Thread.sleep(10_000L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (done.get()) {
+                    return;
+                }
+                touchWatchdog();
+                long sec = (System.currentTimeMillis() - t0) / 1000;
+                if (taskId != null) {
+                    uiLog(taskId, "info", tableTag + " 【心跳】仍在运行 · COUNT " + role + "中（已 " + sec + "s）");
+                }
+            }
+        }, "count-hb-" + role + "-" + tableTag);
+        hb.setDaemon(true);
+        hb.start();
+        try {
+            return countTableRows(conn, qualifiedName, tableTag, role);
+        } finally {
+            done.set(true);
+            hb.interrupt();
+            try {
+                hb.join(1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     private void updateTaskDetail(SyncTask task, AtomicInteger lastSaveTime, String detail) {
         if (task == null) {
             return;
@@ -3780,17 +4199,30 @@ public class SyncTaskRunner {
     private void onDataxLogLine(Long taskId, SyncTask task, AtomicInteger lastSaveTime,
                                 SyncIdleWatchdog dataxWd, String dataxTag,
                                 DataxLogMonitor.Snapshot snap, AtomicLong lastProgressLogMs,
-                                String line) {
+                                String line, int tableTotal, long dataxPhaseStartMs,
+                                boolean dataxDeleteClear) {
         if (dataxWd != null) {
             dataxWd.touch(dataxTag);
         }
+        // 本工具写入的排队/作业说明（非 DataX 原生日志）
+        if (line != null && (line.contains("【心跳】") || line.contains("DataX 作业")
+                || line.contains("槽位") || line.contains("排队等待"))) {
+            progressLogBuffer.append(taskId, "info",
+                    line.startsWith(dataxTag) ? line : (dataxTag + " " + line));
+            return;
+        }
         DataxLogMonitor.Kind kind = DataxLogMonitor.consume(line, snap);
         long now = System.currentTimeMillis();
+        if (kind == DataxLogMonitor.Kind.PROGRESS || kind == DataxLogMonitor.Kind.SUMMARY) {
+            int within = calcDataxWithinTablePct(snap, dataxPhaseStartMs, dataxDeleteClear);
+            boolean allowDec = snap.sawProgress && within <= 55;
+            publishLiveTableProgress(task, dataxTag, within, tableTotal, lastSaveTime, allowDec);
+        }
         switch (kind) {
             case PROGRESS:
                 updateTaskDetail(task, lastSaveTime, dataxTag + " · DataX " + snap.shortStatus());
-                // 进度行 DataX 约每秒一条，UI 节流避免刷屏，但看门狗已 touch
-                if (now - lastProgressLogMs.get() >= 3_000L) {
+                // DataX 进度约每秒一条；UI 约 1s 刷一次，保留 MB/s 与行/秒
+                if (now - lastProgressLogMs.get() >= 1_000L) {
                     lastProgressLogMs.set(now);
                     progressLogBuffer.append(taskId, "info",
                             dataxTag + " 【DataX进度】" + snap.progressDetail());
@@ -3813,6 +4245,177 @@ public class SyncTaskRunner {
             default:
                 break;
         }
+    }
+
+    /**
+     * 单表 DataX 进度 0–100。
+     * <p>
+     * 清表阶段：本表%直接等于清表完成度（不再按源/目标行数加权压到 ~40%），
+     * 避免「清表 95% 但本表卡在 41%」；
+     * 写入阶段：从 50% 起按源 COUNT 推进到 99%。
+     */
+    static int calcDataxWithinTablePct(DataxLogMonitor.Snapshot snap, long phaseStartMs,
+                                       boolean dataxDeleteClear) {
+        if (snap == null) {
+            return 0;
+        }
+        long tgt = Math.max(0L, snap.clearTargetRows);
+        long src = Math.max(0L, snap.sourceTotalRows);
+
+        if (dataxDeleteClear && !snap.sawProgress) {
+            if (tgt <= 0) {
+                return 5;
+            }
+            double clearFrac = estimateClearFraction(snap, tgt, phaseStartMs);
+            return (int) Math.min(99, Math.round(clearFrac * 100.0d));
+        }
+
+        double writeFrac = 0.0;
+        if (src > 0) {
+            long done = snap.bestRowCount() >= 0 ? snap.bestRowCount() : snap.totalRecords;
+            if (snap.sawProgress || snap.sawSummary) {
+                writeFrac = Math.min(1.0d, Math.max(0L, done) / (double) src);
+            }
+        } else if (snap.sawProgress) {
+            writeFrac = Math.min(1.0d, Math.max(0d, snap.percentage) / 100.0d);
+        }
+        if (dataxDeleteClear) {
+            return (int) Math.min(99, Math.round(50.0d + writeFrac * 49.0d));
+        }
+        return (int) Math.min(99, Math.round(writeFrac * 99.0d));
+    }
+
+    /**
+     * 清表完成比例 0–0.99。优先剩余行；否则按时间估算，超过预估时长后指数爬升，避免一直 95%。
+     */
+    static double estimateClearFraction(DataxLogMonitor.Snapshot snap, long tgt, long phaseStartMs) {
+        if (tgt <= 0) {
+            return 1.0;
+        }
+        if (snap != null && snap.clearRemainingRows >= 0) {
+            long rem = Math.min(tgt, snap.clearRemainingRows);
+            long cleared = Math.max(0L, tgt - rem);
+            double frac = cleared / (double) tgt;
+            // 剩余很少但仍未进入写入：顶到 99%，表示清表基本结束
+            if (rem <= Math.max(50_000L, tgt / 1000L)) {
+                return 0.99d;
+            }
+            return Math.min(0.99d, Math.max(0d, frac));
+        }
+        long elapsedMs = Math.max(0L, System.currentTimeMillis() - phaseStartMs);
+        double expectedMs = (tgt / (double) ASSUMED_DATAX_DELETE_ROWS_PER_SEC) * 1000.0d;
+        if (expectedMs < 1_000d) {
+            expectedMs = 1_000d;
+        }
+        if (elapsedMs <= expectedMs) {
+            return Math.min(0.90d, elapsedMs / expectedMs);
+        }
+        // 已超预估：90% → 98% 缓慢爬升（约再 20 分钟贴近 98%）
+        double extra = (elapsedMs - expectedMs) / 1000.0d;
+        return Math.min(0.98d, 0.90d + 0.08d * (1.0d - Math.exp(-extra / 600.0d)));
+    }
+
+    static String formatDataxProgressHint(DataxLogMonitor.Snapshot snap, int withinPct,
+                                          boolean dataxDeleteClear, long tgt, long src,
+                                          long phaseStartMs) {
+        if (snap != null && snap.sawProgress) {
+            return snap.shortStatus() + " · 本表约 " + withinPct + "%";
+        }
+        if (dataxDeleteClear && tgt > 0) {
+            long elapsedSec = Math.max(0L, (System.currentTimeMillis() - phaseStartMs) / 1000L);
+            if (snap != null && snap.clearRemainingRows >= 0) {
+                long rem = snap.clearRemainingRows;
+                long cleared = Math.max(0L, tgt - Math.min(tgt, rem));
+                int clearPct = (int) Math.min(99, cleared * 100 / tgt);
+                String rate = formatClearRateText(cleared, elapsedSec, snap.clearRecentRowsPerSec);
+                return "清表 " + clearPct + "%（已删约 " + cleared + "/" + tgt
+                        + "，剩余 " + rem + "，" + rate
+                        + "，已运行 " + elapsedSec + "s）· 本表 " + withinPct
+                        + "%（=清表进度）· 其后写入源 " + src + " 行"
+                        + "（写入后可见 DataX MB/s）";
+            }
+            double frac = estimateClearFraction(snap, tgt, phaseStartMs);
+            int clearPct = (int) Math.round(frac * 100);
+            long estDeleted = Math.min(tgt, Math.round(frac * tgt));
+            String pace = frac >= 0.90d
+                    ? "预估偏快，仍在 preSql 清表"
+                    : "按约 " + ASSUMED_DATAX_DELETE_ROWS_PER_SEC + " 行/秒估";
+            String rate = formatClearRateText(estDeleted, elapsedSec,
+                    snap != null ? snap.clearRecentRowsPerSec : -1L);
+            return "清表 " + clearPct + "%（估已删 " + estDeleted + "/" + tgt
+                    + "，" + pace + "，" + rate
+                    + "，已 " + elapsedSec + "s）· 本表 " + withinPct
+                    + "%（=清表进度）· 其后写入源 " + src + " 行"
+                    + "（写入后可见 DataX MB/s）";
+        }
+        return "启动中 · 本表约 " + withinPct + "% · 源 COUNT=" + src;
+    }
+
+    /** 清表吞吐：均速 + 近段（有轮询增量时） */
+    static String formatClearRateText(long cleared, long elapsedSec, long recentRowsPerSec) {
+        long avg = elapsedSec > 0 ? cleared / elapsedSec : 0L;
+        if (recentRowsPerSec >= 0) {
+            return "均速 " + avg + " 行/秒, 近段 " + recentRowsPerSec + " 行/秒";
+        }
+        return "均速 " + avg + " 行/秒";
+    }
+
+    private void publishLiveTableProgress(SyncTask task, String tableTag, int within0to100,
+                                          int tableTotal, AtomicInteger lastSaveTime) {
+        publishLiveTableProgress(task, tableTag, within0to100, tableTotal, lastSaveTime, false);
+    }
+
+    /**
+     * @param allowDecrease 进入写入阶段时允许从清表高百分比回落到写入起点（50%）
+     */
+    private void publishLiveTableProgress(SyncTask task, String tableTag, int within0to100,
+                                          int tableTotal, AtomicInteger lastSaveTime,
+                                          boolean allowDecrease) {
+        if (task == null || task.getId() == null || tableTag == null) {
+            return;
+        }
+        ConcurrentHashMap<String, AtomicInteger> map = liveTableProgressPct.get(task.getId());
+        if (map == null) {
+            return;
+        }
+        AtomicInteger cell = map.get(tableTag);
+        if (cell == null) {
+            return;
+        }
+        int pct = Math.max(0, Math.min(100, within0to100));
+        int prev = cell.get();
+        if (pct > prev || pct == 100 || (allowDecrease && pct < prev)) {
+            cell.set(pct);
+        }
+        int overall = calcOverallLiveProgress(task.getId(), tableTotal, -1);
+        synchronized (task) {
+            Integer cur = task.getProgress();
+            if (cur == null || overall != cur) {
+                task.setProgress(Math.min(99, Math.max(0, overall)));
+            }
+            int nowSec = (int) (System.currentTimeMillis() / 1000);
+            if (lastSaveTime != null && nowSec - lastSaveTime.get() >= 2) {
+                lastSaveTime.set(nowSec);
+                saveTaskProgressQuietly(task);
+            }
+        }
+    }
+
+    /** @param doneHint 已完成张数（≥0 时与 map 取较大贡献）；-1 表示忽略 */
+    private int calcOverallLiveProgress(Long taskId, int tableTotal, int doneHint) {
+        int n = Math.max(tableTotal, 1);
+        ConcurrentHashMap<String, AtomicInteger> map = liveTableProgressPct.get(taskId);
+        int sum = 0;
+        if (map != null && !map.isEmpty()) {
+            for (AtomicInteger v : map.values()) {
+                sum += v.get();
+            }
+            return sum / n;
+        }
+        if (doneHint >= 0) {
+            return doneHint * 100 / n;
+        }
+        return 0;
     }
 
     private static String trimDataxLine(String line) {

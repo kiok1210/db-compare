@@ -45,6 +45,8 @@ public class DataxSyncService {
                           String tgtCatalog,
                           String tableName,
                           List<String> primaryKeys,
+                          long targetClearRows,
+                          long sourceRowCount,
                           BooleanSupplier cancelCheck,
                           Consumer<String> logLine,
                           Runnable pollHeartbeat) throws Exception {
@@ -65,14 +67,62 @@ public class DataxSyncService {
             logLine.accept("DataX 槽位已满（并发上限 " + maxConcurrent
                     + "），排队等待中… 活动进程=" + concurrency.getActive());
         }
-        concurrency.acquire(maxConcurrent, cancelCheck);
+        final java.util.concurrent.atomic.AtomicLong lastWaitLogMs =
+                new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis());
+        concurrency.acquire(maxConcurrent, cancelCheck, () -> {
+            if (pollHeartbeat != null) {
+                pollHeartbeat.run();
+            }
+            if (logLine != null) {
+                long now = System.currentTimeMillis();
+                if (now - lastWaitLogMs.get() >= 15_000L) {
+                    lastWaitLogMs.set(now);
+                    logLine.accept("【心跳】仍在运行 · 排队等待 DataX 槽位（活动进程="
+                            + concurrency.getActive() + "/" + maxConcurrent + "）");
+                }
+            }
+        });
         try {
             return runJob(task, sourceConfig, targetConfig, srcCatalog, tgtCatalog, tableName,
                     primaryKeys, settings, dataxPy, channel, maxConcurrent, configuredChannel,
-                    cancelCheck, logLine, pollHeartbeat);
+                    targetClearRows, sourceRowCount, cancelCheck, logLine, pollHeartbeat);
         } finally {
             concurrency.release();
         }
+    }
+
+    /**
+     * @param estimatedRows 兼容旧调用：同时当作清表行数与源行数参考
+     */
+    public long syncTable(SyncTask task,
+                          DataSourceConfig sourceConfig,
+                          DataSourceConfig targetConfig,
+                          String srcCatalog,
+                          String tgtCatalog,
+                          String tableName,
+                          List<String> primaryKeys,
+                          long estimatedRows,
+                          BooleanSupplier cancelCheck,
+                          Consumer<String> logLine,
+                          Runnable pollHeartbeat) throws Exception {
+        return syncTable(task, sourceConfig, targetConfig, srcCatalog, tgtCatalog, tableName,
+                primaryKeys, estimatedRows, estimatedRows, cancelCheck, logLine, pollHeartbeat);
+    }
+
+    /** @deprecated 请传 targetClearRows / sourceRowCount */
+    @Deprecated
+    public long syncTable(SyncTask task,
+                          DataSourceConfig sourceConfig,
+                          DataSourceConfig targetConfig,
+                          String srcCatalog,
+                          String tgtCatalog,
+                          String tableName,
+                          List<String> primaryKeys,
+                          BooleanSupplier cancelCheck,
+                          Consumer<String> logLine,
+                          Runnable pollHeartbeat) throws Exception {
+        return syncTable(task, sourceConfig, targetConfig, srcCatalog, tgtCatalog, tableName,
+                primaryKeys, -1L, -1L, cancelCheck, logLine, pollHeartbeat);
     }
 
     private long runJob(SyncTask task,
@@ -87,6 +137,8 @@ public class DataxSyncService {
                         int channel,
                         int maxConcurrent,
                         int configuredChannel,
+                        long targetClearRows,
+                        long sourceRowCount,
                         BooleanSupplier cancelCheck,
                         Consumer<String> logLine,
                         Runnable pollHeartbeat) throws Exception {
@@ -104,28 +156,41 @@ public class DataxSyncService {
         String srcPass = dataSourceService.resolvePasswordPublic(sourceConfig);
         String tgtPass = dataSourceService.resolvePasswordPublic(targetConfig);
 
-        // channel=1 时不再设 splitPk，避免无谓多切片线程
         String splitPk = null;
         if (channel > 1 && primaryKeys != null && !primaryKeys.isEmpty()) {
             splitPk = primaryKeys.get(0);
         }
         int batchSize = task.getBatchSize() != null ? Math.min(task.getBatchSize(), 4096) : 2048;
-        String clearMode = DataxClearMode.normalize(settings.getDataxClearMode());
+        String clearMode = DataxClearMode.resolve(
+                task != null ? task.getDataxClearMode() : null, settings.getDataxClearMode());
         String jobClearMode = DataxClearMode.isDataxSideClear(clearMode) ? clearMode : DataxClearMode.NONE;
         String writeMode = DataxWriteMode.normalize(settings.getDataxWriteMode());
+        int deleteLimit = settings.getSyncDeleteBatchSize() > 0
+                ? settings.getSyncDeleteBatchSize() : DataxClearMode.DEFAULT_DELETE_LIMIT;
 
+        // preSql 批次数只看目标 COUNT；reader 仍全表读源，不受目标行数限制
         Map<String, Object> job = DataxJobBuilder.buildMysqlFullCopyJob(
                 srcJdbc, srcUser, srcPass, srcTableRef,
                 tgtJdbc, tgtUser, tgtPass, tgtTableRef,
-                splitPk, channel, batchSize, jobClearMode, writeMode);
+                splitPk, channel, batchSize, jobClearMode, writeMode,
+                targetClearRows, deleteLimit);
 
         Path jobDir = Paths.get("data", "datax-jobs", String.valueOf(task.getId()));
         Path jobFile = DataxJobBuilder.writeJobFile(jobDir, sanitize(tableName) + ".json", job);
-        String preSql = DataxClearMode.buildPreSql(tgtTableRef, jobClearMode);
-        log.info("DataX 作业已写入: {} channel={}/{}(配置) maxConcurrent={} active={} table={}->{}",
+        List<String> preSqls = DataxClearMode.buildPreSqlList(
+                tgtTableRef, jobClearMode, targetClearRows, deleteLimit);
+        log.info("DataX 作业已写入: {} channel={}/{} maxConcurrent={} active={} table={}->{} "
+                        + "preSqlBatches={} targetClearRows={} sourceRowCount={}",
                 jobFile.toAbsolutePath(), channel, configuredChannel, maxConcurrent,
-                concurrency.getActive(), srcTableRef, tgtTableRef);
+                concurrency.getActive(), srcTableRef, tgtTableRef, preSqls.size(),
+                targetClearRows, sourceRowCount);
         if (logLine != null) {
+            String clearHint = DataxClearMode.displayName(clearMode);
+            if (DataxClearMode.DATAX_DELETE.equals(DataxClearMode.normalize(jobClearMode))) {
+                clearHint += "，目标COUNT=" + (targetClearRows < 0 ? "未知" : targetClearRows)
+                        + " → LIMIT=" + deleteLimit + " × " + preSqls.size() + " 批"
+                        + "；写入基准源COUNT=" + (sourceRowCount < 0 ? "未知" : sourceRowCount);
+            }
             logLine.accept("DataX 作业: " + jobFile.toAbsolutePath()
                     + " channel=" + channel + (channel != configuredChannel
                     ? ("（配置 " + configuredChannel + "，按并发上限 " + maxConcurrent + " 下调）") : "")
@@ -133,8 +198,10 @@ public class DataxSyncService {
                     + " splitPk=" + (splitPk != null ? splitPk : "(无)")
                     + " writeMode=" + writeMode
                     + " 表=" + srcTableRef + "→" + tgtTableRef
-                    + " 清表=" + DataxClearMode.displayName(clearMode)
-                    + (preSql != null ? (" preSql=" + preSql) : "（作业内无 preSql）"));
+                    + " 清表=" + clearHint
+                    + (preSqls.isEmpty() ? "（作业内无 preSql）"
+                    : (" preSql[0]=" + preSqls.get(0)
+                    + (preSqls.size() > 1 ? (" …共" + preSqls.size() + "条") : ""))));
         }
 
         int code = DataxProcessRunner.run(dataxPy, jobFile, cancelCheck, line -> {

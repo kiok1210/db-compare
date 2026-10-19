@@ -53,26 +53,75 @@ public final class DataxLogMonitor {
         public boolean sawProgress;
         public boolean sawSummary;
 
-        /** UI 短文案 */
+        public long sourceTotalRows = -1L;
+        public long clearTargetRows = -1L;
+        /** 清表阶段轮询到的目标剩余行（information_schema 近似；&lt;0 表示尚未采到） */
+        public long clearRemainingRows = -1L;
+        /** 上次用于算近段删速的剩余行 / 时刻 */
+        public long clearRatePrevRem = -1L;
+        public long clearRatePrevAtMs = -1L;
+        /** 近段清表速度（行/秒，&lt;0 未知） */
+        public long clearRecentRowsPerSec = -1L;
+        public int clearBatches;
+        public boolean clearPhaseHintLogged;
+
+        /** UI 短文案；有源表 COUNT 时用「已传/源COUNT」算进度 */
         public String shortStatus() {
             if (summaryReadRecords != null) {
-                return "完成 " + formatCount(summaryReadRecords)
-                        + (summaryWriteSpeed != null ? (" · " + summaryWriteSpeed + " 行/秒") : "");
+                String done = "完成 " + formatCount(summaryReadRecords);
+                if (sourceTotalRows > 0) {
+                    done += " / 源" + formatCount(sourceTotalRows);
+                }
+                return done + (summaryWriteSpeed != null ? (" · " + summaryWriteSpeed + " 行/秒") : "");
             }
             if (!sawProgress) {
+                if (clearTargetRows > 0) {
+                    return "清表中（目标基准 " + formatCount(clearTargetRows) + " 行"
+                            + (clearBatches > 0 ? (" · " + clearBatches + " 批") : "") + "）";
+                }
                 return "运行中";
             }
-            String pct = percentage > 0.009 ? String.format("%.1f%%", percentage) : "进行中";
-            return formatCount(totalRecords) + " 行 · " + speedRecordsPerSec + " 行/秒 · " + pct;
+            String pct = progressPercentText();
+            StringBuilder sb = new StringBuilder();
+            sb.append(formatCount(totalRecords));
+            if (sourceTotalRows > 0) {
+                sb.append(" / 源").append(formatCount(sourceTotalRows));
+            }
+            sb.append(" 行");
+            if (speedText != null && !speedText.isEmpty()) {
+                sb.append(" · ").append(speedText.trim());
+            }
+            sb.append(" · ").append(speedRecordsPerSec).append(" 行/秒");
+            if (totalBytes > 0) {
+                sb.append(" · 已传 ").append(formatBytes(totalBytes));
+            }
+            sb.append(" · ").append(pct);
+            return sb.toString();
+        }
+
+        public String progressPercentText() {
+            if (sourceTotalRows > 0 && totalRecords >= 0) {
+                double p = Math.min(100d, 100d * totalRecords / (double) sourceTotalRows);
+                return String.format("%.1f%%", p);
+            }
+            return percentage > 0.009 ? String.format("%.1f%%", percentage) : "进行中";
         }
 
         /** 进度日志详情 */
         public String progressDetail() {
-            return "已传输 " + formatCount(totalRecords) + " 行 ("
-                    + formatBytes(totalBytes) + "), 速度 "
-                    + (speedText != null && !speedText.isEmpty() ? speedText.trim() : "?")
-                    + " / " + speedRecordsPerSec + " 行/秒, 错误 "
-                    + errorRecords + ", 进度 " + String.format("%.2f", percentage) + "%";
+            StringBuilder sb = new StringBuilder();
+            sb.append("已传输 ").append(formatCount(totalRecords));
+            if (sourceTotalRows > 0) {
+                sb.append(" / 源COUNT ").append(formatCount(sourceTotalRows))
+                        .append(" (").append(progressPercentText()).append(")");
+            } else {
+                sb.append(" 行, DataX内置进度 ").append(String.format("%.2f", percentage)).append("%");
+            }
+            sb.append(", 速度 ")
+                    .append(speedText != null && !speedText.isEmpty() ? speedText.trim() : "?")
+                    .append(" / ").append(speedRecordsPerSec).append(" 行/秒, 错误 ")
+                    .append(errorRecords);
+            return sb.toString();
         }
 
         /** 优先摘要行数，否则最后一次进度行数 */
@@ -99,6 +148,11 @@ public final class DataxLogMonitor {
         }
         String line = rawLine.trim();
         if (line.isEmpty()) {
+            return Kind.IGNORE;
+        }
+
+        // 无害告警优先过滤（勿标红）
+        if (isBenignDataxNoise(line)) {
             return Kind.IGNORE;
         }
 
@@ -148,7 +202,11 @@ public final class DataxLogMonitor {
                 || line.contains("任务启动时刻")
                 || line.contains("任务结束时刻")
                 || line.contains("任务总计耗时")
-                || line.contains("任务平均流量")) {
+                || line.contains("任务平均流量")
+                || line.contains("CommonRdbmsWriter")
+                || line.contains("preSql")
+                || line.contains("Writer.Job")
+                || line.contains("Reader.Job")) {
             return Kind.INFO;
         }
 
@@ -170,8 +228,21 @@ public final class DataxLogMonitor {
         return Kind.IGNORE;
     }
 
+    /** DataX 启动时常见无害告警（如 job.priority 为 null） */
+    static boolean isBenignDataxNoise(String line) {
+        if (line == null || line.isEmpty()) {
+            return false;
+        }
+        String lower = line.toLowerCase();
+        return lower.contains("numberformatexception")
+                && (lower.contains("priority") || lower.contains("the value is: null"));
+    }
+
     /** logger 级别 ERROR / 异常；进度行已在上方优先解析 */
     static boolean looksLikeError(String line) {
+        if (isBenignDataxNoise(line)) {
+            return false;
+        }
         // "2026... ERROR JobContainer - msg" 或 "... ERROR  c.a... -"
         if (line.matches("(?i).*\\bERROR\\b\\s+[\\w.$]+\\s+-\\s+.*")) {
             return true;

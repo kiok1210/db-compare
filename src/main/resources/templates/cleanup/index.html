@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C盘清理 - 数据库比对工具</title>
+    <link th:href="@{/css/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script th:src="@{/js/jquery.min.js}"></script>
+    <style>
+        .drive-hero {
+            background: linear-gradient(135deg, #4f46e5, #6366f1);
+            border-radius: 14px;
+            color: #fff;
+            padding: 1.4rem 1.6rem;
+            margin-bottom: 1.25rem;
+        }
+        .drive-hero .free { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; }
+        .opt-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 1.15rem 1.25rem;
+            box-shadow: var(--shadow-sm);
+        }
+        .hint { font-size: .78rem; color: #64748b; }
+        .result-table { font-size: .8rem; }
+        .result-table th { font-size: .72rem; color: #64748b; }
+        .badge-audit { background: #eef2ff; color: #4338ca; }
+        .badge-clean { background: #d1fae5; color: #047857; }
+        .badge-skip { background: #f1f5f9; color: #64748b; }
+        .progress-card { display: none; }
+        .progress-track { height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #4f46e5, #818cf8); transition: width .2s; }
+        .progress-path { font-size: .72rem; color: #64748b; word-break: break-all; min-height: 1.1em; }
+        .folder-chip { display: inline-block; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 4px 8px; margin: 0 6px 6px 0; font-size: .72rem; }
+        .detail-table { font-size: .76rem; }
+        .detail-table td { vertical-align: top; }
+        .toggle-btn { border: 0; background: none; color: #4f46e5; font-size: .75rem; padding: 0; }
+        .action-bar {
+            position: sticky;
+            top: 8px;
+            z-index: 30;
+            background: #fff;
+            margin-bottom: 1rem;
+        }
+        .action-bar .btn { min-width: 9rem; }
+        #usageDetails { display: none; }
+        #usageDetails.is-open { display: block; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+        <div class="app-container d-flex align-items-center justify-content-between w-100">
+            <a class="navbar-brand" href="/"><span style="font-size:1.3rem;">&#9670;</span> 数据库比对工具</a>
+            <div class="d-flex align-items-center gap-1 flex-wrap">
+                <a class="nav-link text-white" href="/datasource/list">数据源管理</a>
+                <a class="nav-link text-white" href="/compare/config">比对任务</a>
+                <a class="nav-link text-white" href="/sync/list">同步任务</a>
+                <a class="nav-link text-white" href="/report/list">比对报告</a>
+                <a class="nav-link text-white" href="/viewer">数据浏览</a>
+                <a class="nav-link text-white active" href="/cleanup">C盘清理</a>
+                <a class="nav-link text-white" href="/settings">参数设置</a>
+                <a class="nav-link text-white" href="/logout" title="退出登录">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="app-container py-4">
+        <div class="page-header mb-3">
+            <div>
+                <h2>C 盘清理</h2>
+                <p class="text-muted mb-0" style="font-size:.82rem;">独立功能：先审计可回收缓存，确认后再按白名单删除。不清理文档/下载/桌面（微信 Cache/Temp 除外）、Program Files、WinSxS。</p>
+            </div>
+        </div>
+
+        <div class="drive-hero" id="driveHero">
+            <div class="hint" style="color:rgba(255,255,255,.8);">本机 <span th:text="${osName}">Windows</span></div>
+            <div class="free" id="freeLabel"
+                 th:text="${windows} ? (${freeGb} + ' GB 可用') : '非 Windows 主机'">读取容量…</div>
+            <div class="hint" style="color:rgba(255,255,255,.85);" id="totalLabel"
+                 th:text="${windows} ? ('C: 已用 ' + ${usedGb} + ' / ' + ${totalGb} + ' GB') : ''"></div>
+            <div class="hint mt-2" style="color:rgba(255,255,255,.9);" id="usedHint"></div>
+        </div>
+
+        <div class="alert alert-warning" th:if="${!windows}">当前服务不在 Windows 上运行，无法清理 C 盘。请在 Windows 主机上打开本页。</div>
+
+        <div class="opt-card action-bar" th:if="${windows}" id="actionBar">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <div>
+                    <h5 class="fw-bold mb-1" style="font-size:1rem;">操作</h5>
+                    <p class="hint mb-2">先审计，确认后再删。占用明细默认收起，避免把按钮顶出屏幕。</p>
+                    <div class="alert alert-info py-2 px-3 mb-2" id="auditOnlyHint" style="display:none;font-size:.8rem;">
+                        审计只列出可回收文件，<strong>不会删除</strong>。勾选确认后点「执行清理」才会真正删除。
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="confirmClean" onchange="syncCleanBtn()">
+                        <label class="form-check-label hint" for="confirmClean">我确认删除白名单过期缓存、勾选的大文件，以及重复文件多余副本</label>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-outline-primary" id="btnAudit" onclick="runAudit()">先审计（不删除）</button>
+                    <button type="button" class="btn btn-primary" id="btnClean" onclick="runClean()" disabled title="请先勾选确认">执行清理</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="opt-card mb-3" id="usageCard">
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <div>
+                    <h5 class="fw-bold mb-1" style="font-size:1rem;">C 盘为什么腾不出空间</h5>
+                    <p class="hint mb-0" id="usageHint">白名单体积不在打开时全盘扫描。需要时点右侧「展开占用明细」。</p>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="usageToggle" onclick="toggleUsage()">展开占用明细</button>
+            </div>
+            <div id="usageDetails" class="mt-3">
+                <div class="table-responsive">
+                    <table class="table result-table mb-2">
+                        <thead><tr><th>白名单（可清）</th><th class="text-end">当前占用 MB</th></tr></thead>
+                        <tbody id="usageReclaim"><tr><td colspan="2" class="text-muted">加载中…</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="table-responsive">
+                    <table class="table result-table mb-0">
+                        <thead><tr><th>不会清理</th><th>大约体积</th><th>原因</th></tr></thead>
+                        <tbody id="usageKeep"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3" th:if="${windows}">
+            <div class="col-lg-4">
+                <div class="opt-card">
+                    <h5 class="fw-bold mb-3" style="font-size:1rem;">清理选项</h5>
+                    <label class="hint d-block mb-1">预设</label>
+                    <select id="preset" class="form-select form-select-sm mb-3">
+                        <option value="DEEP" selected>Deep（Temp + pip/npm/更新缓存/回收站，推荐）</option>
+                        <option value="STANDARD">Standard（仅用户 Temp + Windows Temp）</option>
+                    </select>
+                    <label class="hint d-block mb-1">只处理早于 N 天的文件（0 = 全部缓存）</label>
+                    <input id="minAgeDays" type="number" min="0" max="3650" value="1" class="form-control form-control-sm mb-3">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="includeBrowser" checked>
+                        <label class="form-check-label hint" for="includeBrowser">包含浏览器 Cache / GPUCache（不含 Cookie、密码）</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="includeWeChat" checked>
+                        <label class="form-check-label hint" for="includeWeChat">删除微信缓存（不含聊天记录）</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="deleteDupExtras" checked>
+                        <label class="form-check-label hint" for="deleteDupExtras">重复文件每组自动留 1 个（最旧），其余删除</label>
+                    </div>
+                    <label class="hint d-block mb-1">标出大于 N MB 的文件（可选勾选删除）</label>
+                    <input id="largeMinMb" type="number" min="1" max="10240" value="50" class="form-control form-control-sm mb-2">
+                    <p class="hint mb-0">Deep 仍不删文档/软件安装目录。请用上方「先审计 / 执行清理」。</p>
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="opt-card progress-card mb-3" id="progressCard">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold mb-0" style="font-size:1rem;">清理进度</h5>
+                        <span class="hint" id="progressPct">0%</span>
+                    </div>
+                    <div class="progress-track mb-2"><div class="progress-fill" id="progressBar"></div></div>
+                    <div class="hint" id="progressMsg">尚未开始</div>
+                    <div class="progress-path mt-1" id="progressPath"></div>
+                    <div class="hint mt-2" id="progressStats"></div>
+                </div>
+                <div class="opt-card mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold mb-0" style="font-size:1rem;">审计 / 清理结果</h5>
+                        <span class="hint" id="resultSummary">尚未审计</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table result-table mb-0">
+                            <thead>
+                            <tr>
+                                <th>位置</th>
+                                <th class="text-end">占用 MB</th>
+                                <th class="text-end">可回收 MB</th>
+                                <th class="text-end">文件数</th>
+                                <th>动作</th>
+                            </tr>
+                            </thead>
+                            <tbody id="resultBody">
+                            <tr><td colspan="5" class="text-muted">点击「先审计」查看可回收空间</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="folderDetails" class="mt-3">                    </div>
+                </div>
+                <div class="opt-card mb-3" id="largeCard">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold mb-0" style="font-size:1rem;">大文件</h5>
+                        <label class="hint mb-0"><input type="checkbox" id="largeSelectAll" onchange="toggleLargeAll(this)"> 全选（可选删除）</label>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table detail-table mb-0">
+                            <thead>
+                            <tr>
+                                <th></th>
+                                <th>位置</th>
+                                <th>相对路径</th>
+                                <th class="text-end">大小 MB</th>
+                                <th>修改时间</th>
+                                <th>状态</th>
+                            </tr>
+                            </thead>
+                            <tbody id="largeBody">
+                            <tr><td colspan="6" class="text-muted">审计后列出白名单内的大文件，勾选后随清理删除</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="opt-card mb-3" id="dupCard">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold mb-0" style="font-size:1rem;">重复文件</h5>
+                        <span class="hint" id="dupSummary">每组保留最旧的一份，其余可自动删除</span>
+                    </div>
+                    <div id="dupBody"><div class="hint">审计后按内容（MD5）分组</div></div>
+                </div>
+                <div class="opt-card">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold mb-0" style="font-size:1rem;">文件明细</h5>
+                        <span class="hint">按大小列出可回收/已删文件（每处最多 20 条，合计最多 50 条）</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table detail-table mb-0">
+                            <thead>
+                            <tr>
+                                <th>位置</th>
+                                <th>相对路径</th>
+                                <th class="text-end">大小 MB</th>
+                                <th>修改时间</th>
+                                <th>状态</th>
+                            </tr>
+                            </thead>
+                            <tbody id="detailBody">
+                            <tr><td colspan="5" class="text-muted">审计后显示大文件明细</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showToast(msg, type) {
+            type = type || 'info';
+            var el = $('<div class="toast-msg toast-' + type + '">' + $('<div>').text(msg).html() + '</div>');
+            $('#toastContainer').append(el);
+            setTimeout(function() { el.fadeOut(300, function() { el.remove(); }); }, 3500);
+        }
+
+        function selectedLargePaths() {
+            var paths = [];
+            $('.large-file-cb:checked').each(function () { paths.push($(this).val()); });
+            return paths;
+        }
+
+        function toggleLargeAll(el) {
+            $('.large-file-cb').prop('checked', el.checked);
+        }
+
+        function optionsPayload() {
+            var n = parseInt($('#minAgeDays').val(), 10);
+            var largeMin = parseInt($('#largeMinMb').val(), 10);
+            return {
+                preset: $('#preset').val() || 'DEEP',
+                minAgeDays: isNaN(n) ? 1 : n,
+                includeBrowserCaches: $('#includeBrowser').is(':checked'),
+                includeWeChatCaches: $('#includeWeChat').is(':checked'),
+                deleteDuplicateExtras: $('#deleteDupExtras').is(':checked'),
+                largeMinMb: isNaN(largeMin) ? 50 : largeMin,
+                largeFilePaths: selectedLargePaths()
+            };
+        }
+
+        function loadStatus() {
+            $.ajax({
+                url: '/cleanup/status',
+                timeout: 15000,
+                dataType: 'json',
+                success: function(res) {
+                    if (!res || !res.success) {
+                        $('#freeLabel').text('无法读取 C 盘容量');
+                        return;
+                    }
+                    if (!res.windows) {
+                        $('#freeLabel').text('非 Windows 主机');
+                        return;
+                    }
+                    var freeGb = (res.freeBytes || 0) / (1024 * 1024 * 1024);
+                    var totalGb = (res.totalBytes || 0) / (1024 * 1024 * 1024);
+                    var usedGb = Math.max(0, totalGb - freeGb);
+                    $('#freeLabel').text(freeGb.toFixed(2) + ' GB 可用');
+                    $('#totalLabel').text('C: 已用 ' + usedGb.toFixed(2) + ' / ' + totalGb.toFixed(2) + ' GB');
+                },
+                error: function() {
+                    var t = ($('#freeLabel').text() || '');
+                    if (t.indexOf('加载') >= 0 || t.indexOf('读取') >= 0 || !t.trim()) {
+                        $('#freeLabel').text('无法读取 C 盘容量');
+                    }
+                }
+            });
+        }
+
+        var usageFetched = false;
+        function toggleUsage() {
+            var box = document.getElementById('usageDetails');
+            if (!box) return;
+            var open = !box.classList.contains('is-open');
+            if (open) {
+                box.classList.add('is-open');
+                if (!usageFetched) {
+                    usageFetched = true;
+                    $('#usageHint').text('正在统计白名单体积（仅点开时计算，可能需片刻）…');
+                    loadUsage();
+                }
+            } else {
+                box.classList.remove('is-open');
+            }
+            var btn = document.getElementById('usageToggle');
+            if (btn) {
+                btn.textContent = open ? '收起占用明细' : '展开占用明细';
+            }
+        }
+
+        function loadUsage() {
+            $.ajax({
+                url: '/cleanup/usage',
+                timeout: 600000,
+                success: function (res) {
+                    if (!res.success) return;
+                    var gb = ((res.reclaimableMb || 0) / 1024);
+                    $('#usageHint').text((res.hint || '') + (res.reclaimableMb
+                        ? (' 白名单约 ' + gb.toFixed(2) + ' GB，点右侧展开看目录。')
+                        : ''));
+                    var rows = (res.reclaimable || []).filter(function (r) {
+                        return r.exists && (r.totalMb || 0) > 0;
+                    });
+                    rows.sort(function (a, b) { return (b.totalMb || 0) - (a.totalMb || 0); });
+                    var html = '';
+                    rows.forEach(function (r) {
+                        html += '<tr><td>' + esc(r.name) + '<div class="hint">' + esc(r.path) + '</div></td>'
+                            + '<td class="text-end">' + (r.totalMb || 0).toFixed(2) + '</td></tr>';
+                    });
+                    $('#usageReclaim').html(html || '<tr><td colspan="2" class="text-muted">未找到白名单缓存</td></tr>');
+                    var keep = '';
+                    (res.notCleaned || []).forEach(function (n) {
+                        keep += '<tr><td>' + esc(n.name) + '</td><td>' + esc(n.size) + '</td><td>' + esc(n.reason) + '</td></tr>';
+                    });
+                    $('#usageKeep').html(keep);
+                    if (res.reclaimableMb) {
+                        $('#usedHint').text('白名单当前约 ' + gb.toFixed(2)
+                            + ' GB（Deep 可清）；系统和软件占用不会减少。');
+                    }
+                },
+                error: function () {
+                    $('#usageHint').text('占用统计失败（可稍后刷新）');
+                }
+            });
+        }
+
+        function esc(s) { return $('<div>').text(s || '').html(); }
+
+        function applyProgress(p) {
+            if (!p) return;
+            if (p.running || (p.percent && p.percent > 0)) {
+                $('#progressCard').show();
+            }
+            var pct = p.percent || 0;
+            $('#progressBar').css('width', pct + '%');
+            $('#progressPct').text(pct + '%');
+            $('#progressMsg').text(p.message || (p.running ? '处理中…' : '尚未开始'));
+            $('#progressPath').text(p.currentPath || '');
+            var stats = [];
+            if (p.targetTotal) stats.push('位置 ' + (p.targetIndex || 0) + '/' + p.targetTotal);
+            if (p.scannedFiles) stats.push('已扫描 ' + p.scannedFiles + ' 个文件');
+            if (p.eligibleFiles) stats.push('可回收 ' + p.eligibleFiles + ' 个 / ' + (p.eligibleMb || 0).toFixed(2) + ' MB');
+            if (p.phase === 'CLEAN' || p.deletedFiles) stats.push('已删 ' + (p.deletedFiles || 0) + ' 个 / ' + (p.deletedMb || 0).toFixed(2) + ' MB');
+            $('#progressStats').text(stats.join(' · '));
+        }
+
+        var pollTimer = null;
+        function startPoll() {
+            stopPoll();
+            $('#progressCard').show();
+            pollTimer = setInterval(function () {
+                $.get('/cleanup/progress', applyProgress);
+            }, 400);
+            $.get('/cleanup/progress', applyProgress);
+        }
+        function stopPoll() {
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+            $.get('/cleanup/progress', applyProgress);
+        }
+
+        function renderFolders(rows) {
+            var html = '';
+            (rows || []).forEach(function (r, idx) {
+                var folders = r.folders || [];
+                if (!folders.length) return;
+                html += '<div class="mb-2"><div class="hint mb-1">' + esc(r.name) + ' · 子目录明细</div>';
+                folders.forEach(function (f) {
+                    html += '<span class="folder-chip">' + esc(f.path) + ' · ' + (f.mb || 0).toFixed(2)
+                        + ' MB / ' + (f.files || 0) + ' 文件</span>';
+                });
+                html += '</div>';
+            });
+            $('#folderDetails').html(html || '<div class="hint">无子目录明细</div>');
+        }
+
+        function renderDetails(rep) {
+            var files = (rep && rep.details) || [];
+            if (!files.length) {
+                var collected = [];
+                ((rep && rep.targets) || []).forEach(function (t) {
+                    (t.files || []).forEach(function (f) { collected.push(f); });
+                });
+                files = collected;
+            }
+            if (!files.length) {
+                $('#detailBody').html('<tr><td colspan="5" class="text-muted">没有可列出的文件明细</td></tr>');
+                return;
+            }
+            var html = '';
+            files.forEach(function (f) {
+                var st = f.deleted ? '已删除' : (rep.mode === 'CLEAN' ? '保留/失败' : '待清理');
+                html += '<tr>'
+                    + '<td>' + esc(f.target) + '</td>'
+                    + '<td>' + esc(f.path) + '</td>'
+                    + '<td class="text-end">' + (f.mb || 0).toFixed(2) + '</td>'
+                    + '<td>' + esc(f.modified || '') + '</td>'
+                    + '<td>' + esc(st) + '</td>'
+                    + '</tr>';
+            });
+            $('#detailBody').html(html);
+        }
+
+        function renderLarge(rep) {
+            var files = (rep && rep.largeFiles) || [];
+            if (!files.length) {
+                $('#largeBody').html('<tr><td colspan="6" class="text-muted">未发现大于阈值的文件</td></tr>');
+                return;
+            }
+            var html = '';
+            files.forEach(function (f) {
+                var st = f.deleted ? '已删除' : (rep.mode === 'CLEAN' ? '保留' : '可选删除');
+                html += '<tr>'
+                    + '<td><input type="checkbox" class="large-file-cb" value="' + esc(f.fullPath) + '"'
+                    + (f.deleted ? ' disabled' : '') + '></td>'
+                    + '<td>' + esc(f.target) + '</td>'
+                    + '<td title="' + esc(f.fullPath) + '">' + esc(f.path) + '</td>'
+                    + '<td class="text-end">' + (f.mb || 0).toFixed(2) + '</td>'
+                    + '<td>' + esc(f.modified || '') + '</td>'
+                    + '<td>' + esc(st) + '</td>'
+                    + '</tr>';
+            });
+            $('#largeBody').html(html);
+        }
+
+        function renderDups(rep) {
+            var groups = (rep && rep.duplicateGroups) || [];
+            if (!groups.length) {
+                $('#dupBody').html('<div class="hint">未发现重复文件</div>');
+                $('#dupSummary').text('每组保留最旧的一份');
+                return;
+            }
+            $('#dupSummary').text('浪费约 ' + (rep.duplicateWastedMb || 0).toFixed(2)
+                + ' MB · ' + groups.length + ' 组（清理时自动留 1 个）');
+            var html = '';
+            groups.forEach(function (g, idx) {
+                html += '<div class="mb-3"><div class="hint mb-1">组 ' + (idx + 1)
+                    + ' · MD5 ' + esc(g.hash) + ' · ' + (g.copies || 0) + ' 份 · 单份 '
+                    + (g.mb || 0).toFixed(2) + ' MB · 可回收 ' + (g.wastedMb || 0).toFixed(2) + ' MB</div>';
+                if (g.keep) {
+                    html += '<div class="folder-chip">保留 · ' + esc(g.keep.path) + ' · '
+                        + esc(g.keep.modified || '') + '</div>';
+                }
+                (g.extras || []).forEach(function (e) {
+                    html += '<div class="folder-chip">' + (e.deleted ? '已删' : '将删') + ' · '
+                        + esc(e.path) + '</div>';
+                });
+                html += '</div>';
+            });
+            $('#dupBody').html(html);
+        }
+
+        function renderReport(rep) {
+            var rows = (rep && rep.targets) || [];
+            if (!rows.length) {
+                $('#resultBody').html('<tr><td colspan="5" class="text-muted">无目标</td></tr>');
+                return;
+            }
+            var html = '';
+            rows.forEach(function(r) {
+                var badge = r.action === 'clean' ? 'badge-clean' : (r.action === 'audit' ? 'badge-audit' : 'badge-skip');
+                html += '<tr>'
+                    + '<td><div>' + esc(r.name) + '</div><div class="hint">' + esc(r.path) + '</div></td>'
+                    + '<td class="text-end">' + (r.totalMb || 0).toFixed(2) + '</td>'
+                    + '<td class="text-end">' + (r.eligibleMb || 0).toFixed(2) + '</td>'
+                    + '<td class="text-end">' + (r.eligibleFiles || 0) + '</td>'
+                    + '<td><span class="badge ' + badge + '">' + esc(r.action || '') + '</span></td>'
+                    + '</tr>';
+            });
+            $('#resultBody').html(html);
+            renderFolders(rows);
+            renderDetails(rep);
+            renderLarge(rep);
+            renderDups(rep);
+            if (rep.mode === 'CLEAN') {
+                $('#resultSummary').text('已删 ' + (rep.deletedMb || 0).toFixed(2) + ' MB / ' + (rep.deletedFiles || 0)
+                    + ' 个文件，跳过 ' + (rep.skipped || 0) + '；C: ' + (rep.freeBeforeGb || 0).toFixed(2)
+                    + ' → ' + (rep.freeAfterGb || 0).toFixed(2) + ' GB');
+                $('#auditOnlyHint').hide();
+            } else {
+                $('#resultSummary').text('预计可回收 ' + (rep.estimatedEligibleMb || 0).toFixed(2)
+                    + ' MB（>' + (rep.minAgeDays || 7) + ' 天，尚未删除）；当前剩余 '
+                    + (rep.freeBeforeGb || 0).toFixed(2) + ' GB');
+                $('#auditOnlyHint').show();
+            }
+        }
+
+        function syncCleanBtn() {
+            var ok = $('#confirmClean').is(':checked');
+            $('#btnClean').prop('disabled', !ok).attr('title', ok ? '将按白名单删除过期缓存' : '请先勾选确认');
+        }
+
+        function runAudit() {
+            $('#btnAudit').prop('disabled', true).text('审计中…');
+            startPoll();
+            $.ajax({
+                url: '/cleanup/audit',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(optionsPayload()),
+                timeout: 600000,
+                success: function(res) {
+                    if (!res.success) { showToast(res.msg || '审计失败', 'warning'); return; }
+                    renderReport(res);
+                    showToast('审计完成：尚未删除。勾选确认后点「执行清理」', 'success');
+                    loadStatus();
+                },
+                error: function() { showToast('审计请求失败', 'warning'); },
+                complete: function() {
+                    stopPoll();
+                    $('#btnAudit').prop('disabled', false).text('先审计（不删除）');
+                }
+            });
+        }
+
+        function runClean() {
+            if (!$('#confirmClean').is(':checked')) {
+                showToast('请先勾选确认，再执行清理', 'warning');
+                return;
+            }
+            if (!window.confirm('将按白名单删除过期缓存、勾选的大文件，以及重复文件多余副本，不可恢复。确定继续？')) return;
+            var body = optionsPayload();
+            body.confirmClean = true;
+            $('#btnClean').prop('disabled', true).text('清理中…');
+            startPoll();
+            $.ajax({
+                url: '/cleanup/clean',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(body),
+                timeout: 600000,
+                success: function(res) {
+                    if (!res.success) { showToast(res.msg || '清理失败', 'warning'); return; }
+                    renderReport(res);
+                    showToast('已删除 ' + (res.deletedFiles || 0) + ' 个文件 / ' + (res.deletedMb || 0).toFixed(2) + ' MB', 'success');
+                    $('#confirmClean').prop('checked', false);
+                    syncCleanBtn();
+                    $('#auditOnlyHint').hide();
+                    loadStatus();
+                },
+                error: function() { showToast('清理请求失败', 'warning'); },
+                complete: function() {
+                    stopPoll();
+                    $('#btnClean').text('执行清理');
+                    syncCleanBtn();
+                }
+            });
+        }
+
+        $(function () {
+            if (typeof syncCleanBtn === 'function') { syncCleanBtn(); }
+            loadStatus();
+        });
+    </script>
+    <script th:src="@{/js/bootstrap.bundle.min.js}"></script>
+    <script th:src="@{/js/app-version.js}"></script>
+</body>
+</html>

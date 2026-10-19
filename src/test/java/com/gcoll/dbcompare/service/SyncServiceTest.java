@@ -391,24 +391,23 @@ class SyncServiceTest {
     }
 
     @Test
-    void updateDraft_updatesIncludeTables() {
+    void updateDraft_updatesDataxClearMode() {
         SyncTask task = baseTask();
         task.setStatus(SyncTask.STATUS_PENDING);
         task.setStartTime(null);
         task.setCurrentTable("待确认：x");
-        task.setIncludeTables("a::old");
         when(syncTaskRepository.findById(TASK_ID)).thenReturn(Optional.of(task));
         when(syncTaskRepository.save(any(SyncTask.class))).thenAnswer(inv -> inv.getArgument(0));
 
         SyncTask patch = new SyncTask();
-        patch.setIncludeTables("a::t1,b::t2");
-        patch.setSourceSchema("a,b");
+        patch.setDataxClearMode("PARALLEL_DELETE");
+        patch.setClearParallelThreads(6);
         SyncTask saved = syncService.updateDraft(TASK_ID, patch);
 
-        assertEquals("a::t1,b::t2", saved.getIncludeTables());
-        assertEquals("a,b", saved.getSourceSchema());
-        assertTrue(saved.getCurrentTable().startsWith("待确认"));
+        assertEquals("PARALLEL_DELETE", saved.getDataxClearMode());
+        assertEquals(6, saved.getClearParallelThreads());
     }
+
 
     @Test
     void schemasFromTableKeys_extractsSchemas() {
